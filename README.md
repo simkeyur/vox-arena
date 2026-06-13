@@ -93,35 +93,9 @@ Run `voxarena <command> --help` for the full flag set.
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    A["Recorded WAVs<br/>script/audio/*.wav"] --> B["Injection Harness<br/>voxarena/harness.py"]
-    B --> C
-
-    subgraph C ["Pipecat Pipeline"]
-        direction LR
-        C1["Audio Injector"] --> C2["Provider Adapter"]
-        C2 --> C3["Audio Capture"]
-        C3 --> C4["Metrics Collector"]
-    end
-
-    C2 <--> D{{"Provider Backend"}}
-    D --> D1["Gemini Live"]
-    D --> D2["OpenAI Realtime"]
-    D --> D3["...future providers"]
-
-    C4 --> E["Run Manifest<br/>results/PROVIDER/RUN_ID/manifest.json"]
-    E --> F[("SQLite Index<br/>runs.db")]
-
-    F <--> G["voxarena CLI<br/>+ FastAPI Backend"]
-    G <--> H["React Control Panel<br/>ui/"]
-
-    style D1 fill:#4285F4,color:#fff,stroke:#333
-    style D2 fill:#10A37F,color:#fff,stroke:#333
-    style D3 fill:#999,color:#fff,stroke:#333
-    style F fill:#f5f5f5,stroke:#333
-    style H fill:#fff7da,stroke:#333
-```
+<p align="center">
+  <img src="https://raw.githubusercontent.com/simkeyur/vox-arena/main/ui/src/assets/architecture.png" alt="VoxArena Architecture" width="800" />
+</p>
 
 ## Local Dev (with UI)
 
