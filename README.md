@@ -81,6 +81,27 @@ Run `voxarena <command> --help` for the full flag set.
 
 ---
 
+## 🖥️ Web Control Panel UI (Zero Setup)
+
+You can configure credentials, build test scripts, and run the benchmark suite entirely from your web browser:
+
+```bash
+pip install voxarena
+voxarena ui
+```
+
+This starts a local server and automatically opens the dashboard in your default browser at `http://127.0.0.1:8000`.
+
+From the UI, you can:
+- **Set Up API Keys:** Add and save Google Gemini and OpenAI API keys securely in the local database.
+- **Select Models:** Pick from preloaded Gemini and OpenAI realtime models, or write in your own custom model identifiers.
+- **Edit Test Utterances:** Create, edit, and delete turns in your test scripts using the interactive visual list editor (no raw YAML/JSON formatting needed).
+- **Run & Inspect:** Start live comparison runs and watch real-time transcripts, metrics, audio playbacks, and tool-call correctness side-by-side.
+
+*Note: If you run `voxarena ui` in a clean, empty directory, it will automatically bootstrap default script files and pre-recorded audio so you can run benchmarks immediately.*
+
+---
+
 ## Features
 
 - 🎙️ **Provider-agnostic agent** — one Pipecat pipeline drives every provider; swap models without re-implementing your agent
