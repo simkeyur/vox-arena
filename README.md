@@ -126,8 +126,8 @@ flowchart TD
 ## Local Dev (with UI)
 
 ```bash
-git clone https://github.com/<your-org>/voxarena.git
-cd voxarena
+git clone https://github.com/simkeyur/vox-arena.git
+cd vox-arena
 cp .env.example .env  # add GOOGLE_API_KEY / OPENAI_API_KEY
 
 python3 -m venv .venv && source .venv/bin/activate
