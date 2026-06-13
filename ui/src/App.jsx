@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Sun, Moon, Play, Pause, BarChart3, History, Settings, 
   Mic, CloudLightning, AudioLines, ClipboardCheck, ArrowRightLeft, 
-  Trash2, CheckCircle2, XCircle, AlertCircle 
+  Trash2, CheckCircle2, XCircle, AlertCircle, ArrowLeft
 } from 'lucide-react';
 import logoUrl from './assets/logo.png';
 import './App.css';
@@ -404,7 +404,7 @@ function App() {
   const [activeComparison, setActiveComparison] = useState(null);
   const [loadingComparison, setLoadingComparison] = useState(false);
 
-  const handleTriggerComparison = (runId1, runId2) => {
+  const handleTriggerComparison = useCallback((runId1, runId2) => {
     setLoadingComparison(true);
     Promise.all([
       fetch(`${backendUrl}/api/runs/${runId1}`).then((res) => res.json()),
@@ -419,7 +419,7 @@ function App() {
         setLoadingComparison(false);
         alert('Failed to load runs for comparison.');
       });
-  };
+  }, []);
 
   const backendUrl = ''; // Relative path for proxy or served directly
 
@@ -434,6 +434,46 @@ function App() {
       .then((data) => setSelectedRunData(data))
       .catch((err) => console.error('Error fetching run details:', err));
   }, [selectedRunId]);
+
+  // Synchronize hash state with tab/inspect/compare states
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash || '#/launcher';
+      
+      if (hash.startsWith('#/launcher')) {
+        setActiveTab('launcher');
+        setSelectedRunId(null);
+        setActiveComparison(null);
+      } else if (hash.startsWith('#/metrics')) {
+        setActiveTab('metrics');
+        setSelectedRunId(null);
+        setActiveComparison(null);
+      } else if (hash.startsWith('#/settings')) {
+        setActiveTab('settings');
+        setSelectedRunId(null);
+        setActiveComparison(null);
+      } else if (hash.startsWith('#/history')) {
+        setActiveTab('history');
+        const parts = hash.split('/');
+        if (parts[2] === 'inspect' && parts[3]) {
+          setSelectedRunId(parts[3]);
+          setActiveComparison(null);
+        } else if (parts[2] === 'compare' && parts[3] && parts[4]) {
+          setSelectedRunId(null);
+          handleTriggerComparison(parts[3], parts[4]);
+        } else {
+          setSelectedRunId(null);
+          setActiveComparison(null);
+          setCompareSelection([]);
+        }
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    handleHashChange();
+
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [handleTriggerComparison]);
 
   useEffect(() => {
     // Fetch API Config and Health
@@ -828,7 +868,7 @@ function App() {
           <nav className="sidebar-nav">
             <button
               className={`sidebar-btn ${activeTab === 'launcher' ? 'active' : ''}`}
-              onClick={() => setActiveTab('launcher')}
+              onClick={() => { window.location.hash = '#/launcher'; }}
               title="Run Launcher"
               aria-label="Run Launcher"
             >
@@ -836,7 +876,7 @@ function App() {
             </button>
             <button
               className={`sidebar-btn ${activeTab === 'metrics' ? 'active' : ''}`}
-              onClick={() => setActiveTab('metrics')}
+              onClick={() => { window.location.hash = '#/metrics'; }}
               title="Metrics Showdown"
               aria-label="Metrics Showdown"
             >
@@ -844,10 +884,7 @@ function App() {
             </button>
             <button
               className={`sidebar-btn ${activeTab === 'history' ? 'active' : ''}`}
-              onClick={() => {
-                setActiveTab('history');
-                setSelectedRunId(null);
-              }}
+              onClick={() => { window.location.hash = '#/history'; }}
               title="Results Browser"
               aria-label="Results Browser"
             >
@@ -857,7 +894,7 @@ function App() {
 
           <button
             className={`sidebar-btn ${activeTab === 'settings' ? 'active' : ''}`}
-            onClick={() => setActiveTab('settings')}
+            onClick={() => { window.location.hash = '#/settings'; }}
             title="Settings"
             aria-label="Settings"
           >
@@ -872,7 +909,7 @@ function App() {
               <strong>Welcome to VoxArena!</strong> No API keys are configured yet, so runs will fail.
               Add your provider API keys to get started.
             </div>
-            <button className="btn btn-primary" onClick={() => setActiveTab('settings')}>
+            <button className="btn btn-primary" onClick={() => { window.location.hash = '#/settings'; }}>
               Set up API Keys
             </button>
           </div>
@@ -1179,13 +1216,20 @@ function App() {
               // Side-by-side Comparison View
               <div className="card">
                 <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <ArrowRightLeft size={16} />
-                    Side-by-Side Run Comparison
-                  </span>
-                  <button className="btn" onClick={() => { setActiveComparison(null); setCompareSelection([]); }}>
-                    &larr; Back to History
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <button 
+                      className="btn-icon" 
+                      onClick={() => { window.location.hash = '#/history'; }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fg)', padding: 4, display: 'flex', alignItems: 'center' }}
+                      title="Back to History"
+                    >
+                      <ArrowLeft size={18} />
+                    </button>
+                    <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <ArrowRightLeft size={16} />
+                      Side-by-Side Run Comparison
+                    </span>
+                  </div>
                 </div>
                 <div className="card-body">
                   {/* Split Summary */}
@@ -1349,21 +1393,27 @@ function App() {
               // Detailed Inspector View
               <div className="card">
                 <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="card-title" style={{ fontFamily: 'var(--font-mono)' }}>
-                    INSPECT: {selectedRunId.slice(0, 12)}...
-                  </span>
-                  <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <button 
-                      className="btn" 
-                      style={{ color: 'var(--error)', borderColor: 'rgba(220, 38, 38, 0.2)' }}
-                      onClick={() => handleDeleteRun(selectedRunId)}
+                      className="btn-icon" 
+                      onClick={() => { window.location.hash = '#/history'; }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fg)', padding: 4, display: 'flex', alignItems: 'center' }}
+                      title="Back to History"
                     >
-                      Delete Run
+                      <ArrowLeft size={18} />
                     </button>
-                    <button className="btn" onClick={() => setSelectedRunId(null)}>
-                      &larr; Back to History
-                    </button>
+                    <span className="card-title" style={{ fontFamily: 'var(--font-mono)' }}>
+                      INSPECT: {selectedRunId.slice(0, 12)}...
+                    </span>
                   </div>
+                  <button 
+                    className="btn-icon" 
+                    onClick={() => handleDeleteRun(selectedRunId)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--error)', padding: 6, display: 'flex', alignItems: 'center', borderRadius: 8, transition: 'background-color 0.2s' }}
+                    title="Delete Run"
+                  >
+                    <Trash2 size={18} />
+                  </button>
                 </div>
                 <div className="card-body">
                   {!selectedRunData ? (
@@ -1488,7 +1538,7 @@ function App() {
                   {compareSelection.length === 2 && (
                     <button 
                       className="btn btn-primary"
-                      onClick={() => handleTriggerComparison(compareSelection[0], compareSelection[1])}
+                      onClick={() => { window.location.hash = `#/history/compare/${compareSelection[0]}/${compareSelection[1]}`; }}
                     >
                       Compare Selected ({compareSelection.length})
                     </button>
@@ -1549,23 +1599,24 @@ function App() {
                                 </span>
                               </td>
                               <td>
-                                <div style={{ display: 'flex', gap: 8 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                                   <button 
                                     className="btn" 
                                     style={{ padding: '4px 8px', fontSize: 11 }}
-                                    onClick={() => setSelectedRunId(run.run_id)}
+                                    onClick={() => { window.location.hash = `#/history/inspect/${run.run_id}`; }}
                                   >
                                     Inspect
                                   </button>
                                   <button 
-                                    className="btn" 
-                                    style={{ padding: '4px 8px', fontSize: 11, color: 'var(--error)', borderColor: 'rgba(220, 38, 38, 0.2)' }}
+                                    className="btn-icon" 
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--error)', padding: 4, display: 'flex', alignItems: 'center', transition: 'color 0.2s' }}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       handleDeleteRun(run.run_id);
                                     }}
+                                    title="Delete Experiment"
                                   >
-                                    Delete
+                                    <Trash2 size={15} />
                                   </button>
                                 </div>
                               </td>
