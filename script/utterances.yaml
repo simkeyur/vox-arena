@@ -1,0 +1,88 @@
+# The Bistro Voice Agent Bake-off Benchmark Utterances
+# 10 curated test cases covering: greeting, menu lookup, hours, reservation,
+# constraint handling, interruption recovery, mumbled speech, and out-of-scope rejection.
+
+- id: u01
+  category: "faq"
+  text: "Hello, is this The Bistro?"
+  expect:
+    intent: "greeting"
+    tool: null
+
+- id: u02
+  category: "tool_call"
+  text: "What starters do you have?"
+  expect:
+    intent: "menu_lookup"
+    tool: "lookup_menu"
+    args: { category: "starters" }
+    response_contains: ["Tomato Soup", "Garlic Bread"]
+
+- id: u03
+  category: "tool_call"
+  text: "What desserts do you serve?"
+  expect:
+    intent: "menu_lookup_desserts"
+    tool: "lookup_menu"
+    args: { category: "desserts" }
+    response_contains: ["Chocolate Cake", "Vanilla Ice Cream"]
+
+- id: u04
+  category: "tool_call"
+  text: "What are your hours on Sunday?"
+  expect:
+    intent: "hours_lookup"
+    tool: "get_hours"
+    args: { day: "sunday" }
+
+- id: u05
+  category: "tool_call"
+  text: "Can I book a table for four people tomorrow at seven pm?"
+  expect:
+    intent: "reservation"
+    tool: "check_reservation_availability"
+    args: { party_size: 4, time: "19:00" }
+
+- id: u06
+  category: "constraint"
+  text: "Can I reserve a table for twenty people on Friday at eight PM?"
+  expect:
+    intent: "reservation_overlimit"
+    tool: "check_reservation_availability"
+    args: { party_size: 20, time: "20:00" }
+    response_contains: ["cannot accommodate", "larger than 12"]
+
+- id: u07
+  category: "interruption"
+  text: "Wait, actually, is The Bistro open on Mondays?"
+  expect:
+    intent: "hours_lookup_monday"
+    tool: "get_hours"
+    args: { day: "monday" }
+    response_contains: ["closed"]
+
+- id: u08
+  category: "mumbled"
+  text: "Do you... uh... have... any... burgers on the menu?"
+  expect:
+    intent: "menu_item_check"
+    tool: "lookup_menu"
+    args: { category: "mains" }
+    response_contains: ["House Burger"]
+
+- id: u09
+  category: "out_of_scope"
+  text: "Can you give me directions to your restaurant?"
+  expect:
+    intent: "directions"
+    tool: null
+    response_contains: ["cannot assist", "menu", "hours", "reservations"]
+
+- id: u10
+  category: "complex"
+  text: "I want to book a table for two tomorrow at six PM, and what dessert do you recommend?"
+  expect:
+    intent: "multi_intent"
+    tool: "check_reservation_availability"
+    args: { party_size: 2, time: "18:00" }
+    response_contains: ["available", "Chocolate Cake", "Ice Cream"]

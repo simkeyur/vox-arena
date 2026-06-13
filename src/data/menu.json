@@ -1,0 +1,65 @@
+{
+  "starters": [
+    {
+      "name": "Tomato Soup",
+      "price": 6.00,
+      "description": "Creamy tomato soup served with croutons. Contains dairy, gluten-free option available."
+    },
+    {
+      "name": "Garlic Bread",
+      "price": 5.00,
+      "description": "Toasted baguette slices topped with butter and garlic herb spread. Contains gluten and dairy."
+    }
+  ],
+  "mains": [
+    {
+      "name": "House Burger",
+      "price": 12.00,
+      "description": "Grilled beef patty with lettuce, tomato, and house sauce on a brioche bun. Served with fries. Contains gluten."
+    },
+    {
+      "name": "Caesar Salad",
+      "price": 10.00,
+      "description": "Romaine lettuce tossed in Caesar dressing with parmesan cheese and croutons. Contains dairy and fish."
+    },
+    {
+      "name": "Grilled Salmon",
+      "price": 18.00,
+      "description": "Fresh Atlantic salmon fillet grilled and served with seasonal vegetables."
+    },
+    {
+      "name": "Pasta Marinara",
+      "price": 14.00,
+      "description": "Spaghetti tossed in tomato marinara sauce topped with fresh basil. Vegan, contains gluten."
+    }
+  ],
+  "desserts": [
+    {
+      "name": "Chocolate Cake",
+      "price": 7.00,
+      "description": "Rich double chocolate cake slice served with a scoop of vanilla ice cream. Contains dairy, gluten, and eggs."
+    },
+    {
+      "name": "Vanilla Ice Cream",
+      "price": 5.00,
+      "description": "Two scoops of vanilla bean ice cream. Contains dairy."
+    }
+  ],
+  "drinks": [
+    {
+      "name": "Coffee",
+      "price": 3.00,
+      "description": "Freshly brewed house blend coffee. Available hot or iced."
+    },
+    {
+      "name": "Soda",
+      "price": 2.50,
+      "description": "Choice of cola, lemon-lime, or orange soda."
+    },
+    {
+      "name": "Water",
+      "price": 1.50,
+      "description": "Chilled bottled spring water."
+    }
+  ]
+}
