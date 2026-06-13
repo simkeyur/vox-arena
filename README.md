@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="ui/src/assets/logo-dark.png" />
-    <img src="ui/src/assets/logo.png" alt="VoxArena" width="220" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/simkeyur/vox-arena/main/ui/src/assets/logo-dark.png" />
+    <img src="https://raw.githubusercontent.com/simkeyur/vox-arena/main/ui/src/assets/logo.png" alt="VoxArena" width="220" />
   </picture>
 </p>
 
