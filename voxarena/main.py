@@ -53,72 +53,69 @@ async def health_check():
     return {"status": "healthy", "service": "voxarena"}
 
 def _api_key_for(provider: str) -> Optional[str]:
-    return os.environ.get(api_key_env(provider)) or getattr(settings, api_key_env(provider), None)
+    from voxarena.config import get_setting
+    return get_setting(api_key_env(provider))
 
-
-@app.get("/api/config")
-async def get_config():
-    """Retrieve global directory settings and credentials availability (without exposing raw keys)."""
-    providers = provider_names()
+@app.get("/api/status")
+async def get_status():
+    """Check connectivity and loaded configuration."""
+    from voxarena.config import get_setting
+    providers = ["gemini", "openai"]
+    google_key = get_setting("GOOGLE_API_KEY")
+    openai_key = get_setting("OPENAI_API_KEY")
     return {
+        "status": "ready",
         "base_dir": settings.BASE_DIR,
         "results_dir": settings.RESULTS_DIR,
         "script_dir": settings.SCRIPT_DIR,
         "audio_dir": settings.AUDIO_DIR,
         "review_dir": settings.REVIEW_DIR,
-        "has_google_key": bool(settings.GOOGLE_API_KEY),
-        "has_openai_key": bool(settings.OPENAI_API_KEY),
+        "has_google_key": bool(google_key),
+        "has_openai_key": bool(openai_key),
         "providers": providers,
         "has_api_key": {p: bool(_api_key_for(p)) for p in providers},
         "transports": ["direct-injection", "webrtc-local"],
-        "gemini_model": settings.GEMINI_MODEL,
-        "openai_model": settings.OPENAI_MODEL,
+        "gemini_model": get_setting("GEMINI_MODEL") or settings.GEMINI_MODEL,
+        "openai_model": get_setting("OPENAI_MODEL") or settings.OPENAI_MODEL,
     }
 
 class SettingsUpdateRequest(BaseModel):
     gemini_model: str
     openai_model: str
-
-def _update_env_file(updates: Dict[str, str]):
-    """Update or add KEY=VALUE lines in the project's .env file without touching other entries."""
-    env_path = os.path.join(settings.BASE_DIR, ".env")
-    lines = []
-    if os.path.exists(env_path):
-        with open(env_path, "r") as f:
-            lines = f.readlines()
-
-    remaining = dict(updates)
-    for idx, line in enumerate(lines):
-        stripped = line.strip()
-        for key in list(remaining.keys()):
-            if stripped.startswith(f"{key}=") or stripped.startswith(f"{key} ="):
-                lines[idx] = f"{key}={remaining.pop(key)}\n"
-                break
-
-    for key, value in remaining.items():
-        lines.append(f"{key}={value}\n")
-
-    with open(env_path, "w") as f:
-        f.writelines(lines)
+    google_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = None
 
 @app.get("/api/settings")
 async def get_settings():
-    """Retrieve editable application settings."""
+    """Retrieve editable application settings from SQLite / config."""
+    from voxarena.config import get_setting
+    google_key = get_setting("GOOGLE_API_KEY")
+    openai_key = get_setting("OPENAI_API_KEY")
     return {
-        "gemini_model": settings.GEMINI_MODEL,
-        "openai_model": settings.OPENAI_MODEL
+        "gemini_model": get_setting("GEMINI_MODEL") or settings.GEMINI_MODEL,
+        "openai_model": get_setting("OPENAI_MODEL") or settings.OPENAI_MODEL,
+        "google_api_key": "••••••••" if google_key else "",
+        "openai_api_key": "••••••••" if openai_key else "",
     }
 
 @app.post("/api/settings")
 async def update_settings(req: SettingsUpdateRequest):
-    """Update the Gemini/OpenAI model configuration, persisted to .env."""
-    settings.GEMINI_MODEL = req.gemini_model
-    settings.OPENAI_MODEL = req.openai_model
-    _update_env_file({
-        "GEMINI_MODEL": req.gemini_model,
-        "OPENAI_MODEL": req.openai_model
-    })
-    return {"status": "saved", "gemini_model": settings.GEMINI_MODEL, "openai_model": settings.OPENAI_MODEL}
+    """Update application settings and credentials in SQLite."""
+    from voxarena.config import set_setting
+    
+    set_setting("GEMINI_MODEL", req.gemini_model)
+    set_setting("OPENAI_MODEL", req.openai_model)
+    
+    if req.google_api_key is not None and req.google_api_key != "••••••••":
+        set_setting("GOOGLE_API_KEY", req.google_api_key)
+    if req.openai_api_key is not None and req.openai_api_key != "••••••••":
+        set_setting("OPENAI_API_KEY", req.openai_api_key)
+        
+    return {
+        "status": "saved", 
+        "gemini_model": req.gemini_model, 
+        "openai_model": req.openai_model
+    }
 
 @app.get("/api/utterances")
 async def get_utterances():
@@ -149,6 +146,38 @@ async def update_utterances(req: UtterancesUpdateRequest):
         f.write(req.content)
 
     return {"status": "saved", "count": len(parsed)}
+
+@app.get("/api/utterances/json")
+async def get_utterances_json():
+    """Retrieve scripted conversation utterances as a parsed JSON array."""
+    import yaml
+    utterances_path = os.path.join(settings.SCRIPT_DIR, "utterances.yaml")
+    if not os.path.exists(utterances_path):
+        return []
+    try:
+        with open(utterances_path, "r") as f:
+            parsed = yaml.safe_load(f)
+        if isinstance(parsed, list):
+            return parsed
+        return []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse utterances YAML: {e}")
+
+class UtterancesJsonUpdateRequest(BaseModel):
+    utterances: List[Dict[str, Any]]
+
+@app.post("/api/utterances/json")
+async def update_utterances_json(req: UtterancesJsonUpdateRequest):
+    """Serialize and save the scripted conversation utterances JSON array to YAML."""
+    import yaml
+    utterances_path = os.path.join(settings.SCRIPT_DIR, "utterances.yaml")
+    try:
+        yaml_content = yaml.safe_dump(req.utterances, sort_keys=False, default_flow_style=False)
+        with open(utterances_path, "w") as f:
+            f.write(yaml_content)
+        return {"status": "saved", "count": len(req.utterances)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to serialize to YAML: {e}")
 
 @app.get("/api/runs", response_model=List[Dict[str, Any]])
 async def list_runs():
@@ -345,8 +374,23 @@ async def compile_report():
 
 app.mount("/api/results", StaticFiles(directory=settings.RESULTS_DIR), name="results")
 
-# Serve compiled frontend static files if they exist
-ui_dist_path = os.path.join(settings.BASE_DIR, "ui", "dist")
+# Serve compiled frontend static files
+import importlib.resources
+from voxarena.config import is_dev_mode
+
+ui_dist_path = None
+
+if not is_dev_mode:
+    try:
+        pkg_ui_dist = importlib.resources.files("voxarena").joinpath("ui_dist")
+        if pkg_ui_dist.exists():
+            ui_dist_path = str(pkg_ui_dist)
+    except Exception:
+        pass
+
+if not ui_dist_path:
+    ui_dist_path = os.path.join(settings.BASE_DIR, "ui", "dist")
+
 if os.path.exists(ui_dist_path):
     logger.info(f"Serving static files from {ui_dist_path}")
     app.mount("/", StaticFiles(directory=ui_dist_path, html=True), name="ui")

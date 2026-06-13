@@ -23,6 +23,18 @@ class ProviderConfig(BaseModel):
     temperature: float = Field(0.0, ge=0.0, le=2.0)
     max_tokens: Optional[int] = None
 
+# Determine if we are running in the git repo dev environment or a packaged install
+current_dir = os.path.dirname(os.path.abspath(__file__))
+repo_root = os.path.abspath(os.path.join(current_dir, ".."))
+
+is_dev_mode = (
+    os.path.exists(os.path.join(repo_root, "pyproject.toml")) and 
+    os.path.exists(os.path.join(repo_root, "ui"))
+)
+
+default_base_dir = os.environ.get("BASE_DIR") or (repo_root if is_dev_mode else os.getcwd())
+
+
 class AppSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -43,12 +55,24 @@ class AppSettings(BaseSettings):
     GEMINI_EVAL_MODEL: str = "gemini-3.1-flash-lite"
     OPENAI_EVAL_MODEL: str = "gpt-5.4-mini"
     
-    # Directory paths (relative to workspace root)
-    BASE_DIR: str = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    RESULTS_DIR: str = os.path.join(BASE_DIR, "results")
-    SCRIPT_DIR: str = os.path.join(BASE_DIR, "script")
-    AUDIO_DIR: str = os.path.join(SCRIPT_DIR, "audio")
-    REVIEW_DIR: str = os.path.join(BASE_DIR, "review")
+    # Directory paths
+    BASE_DIR: str = default_base_dir
+    RESULTS_DIR: str = ""
+    SCRIPT_DIR: str = ""
+    AUDIO_DIR: str = ""
+    REVIEW_DIR: str = ""
+
+    def __init__(self, **values):
+        super().__init__(**values)
+        if not self.RESULTS_DIR:
+            self.RESULTS_DIR = os.path.join(self.BASE_DIR, "results")
+        if not self.SCRIPT_DIR:
+            self.SCRIPT_DIR = os.path.join(self.BASE_DIR, "script")
+        if not self.AUDIO_DIR:
+            self.AUDIO_DIR = os.path.join(self.SCRIPT_DIR, "audio")
+        if not self.REVIEW_DIR:
+            self.REVIEW_DIR = os.path.join(self.BASE_DIR, "review")
+
 
 # Global settings instance
 settings = AppSettings()
@@ -56,3 +80,65 @@ settings = AppSettings()
 # Ensure directories exist
 for directory in [settings.RESULTS_DIR, settings.SCRIPT_DIR, settings.AUDIO_DIR, settings.REVIEW_DIR]:
     os.makedirs(directory, exist_ok=True)
+
+# Bootstrap default scripts if in packaged mode and utterances.yaml is missing
+utterances_file = os.path.join(settings.SCRIPT_DIR, "utterances.yaml")
+if not is_dev_mode and not os.path.exists(utterances_file):
+    try:
+        import importlib.resources
+        import shutil
+
+        src_path = importlib.resources.files("voxarena").joinpath("default_script")
+        if src_path.exists():
+            for item in src_path.iterdir():
+                dest_item = os.path.join(settings.SCRIPT_DIR, item.name)
+                if item.is_dir():
+                    shutil.copytree(str(item), dest_item, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(str(item), dest_item)
+    except Exception as e:
+        print(f"Warning: failed to bootstrap default script files: {e}")
+
+
+def get_setting(key: str) -> Optional[str]:
+    # 1. Environment variable wins
+    if key in os.environ:
+        return os.environ[key]
+        
+    # 2. SQLite settings table
+    try:
+        from voxarena.database import get_db_connection, DB_PATH
+        if os.path.exists(DB_PATH):
+            with get_db_connection() as conn:
+                row = conn.execute("SELECT value FROM settings WHERE key = ?;", (key,)).fetchone()
+                if row:
+                    return row[0]
+    except Exception:
+        pass
+
+    # 3. Fallback to AppSettings memory/env file
+    return getattr(settings, key, None)
+
+
+def set_setting(key: str, value: str) -> None:
+    # 1. Update SQLite settings table
+    try:
+        from voxarena.database import get_db_connection
+        # Ensure database is initialized before we write to it
+        from voxarena.database import init_db
+        init_db()
+        with get_db_connection() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?);",
+                (key, value)
+            )
+            conn.commit()
+    except Exception as e:
+        print(f"Warning: failed to write setting {key} to database: {e}")
+
+    # 2. Update memory settings if class field
+    if hasattr(settings, key):
+        setattr(settings, key, value)
+
+    # 3. Update environment variable
+    os.environ[key] = value

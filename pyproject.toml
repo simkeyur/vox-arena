@@ -52,3 +52,7 @@ Issues = "https://github.com/simkeyur/vox-arena/issues"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["voxarena*"]
+
+[tool.setuptools.package-data]
+voxarena = ["ui_dist/**/*", "default_script/**/*"]
+

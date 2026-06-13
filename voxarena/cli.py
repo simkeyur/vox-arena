@@ -34,16 +34,16 @@ def _quiet_logs() -> None:
 
 def _resolve_api_key(provider: str, settings) -> Optional[str]:
     from voxarena.providers import api_key_env
-    env_name = api_key_env(provider)
-    return os.environ.get(env_name) or getattr(settings, env_name, None)
+    from voxarena.config import get_setting
+    return get_setting(api_key_env(provider))
 
 
 def _resolve_model(provider: str, explicit: Optional[str], settings) -> str:
     if explicit:
         return explicit
-    # Per-provider default-model env var: <PROVIDER>_MODEL
+    from voxarena.config import get_setting
     field = f"{provider.upper()}_MODEL"
-    return getattr(settings, field, None) or ""
+    return get_setting(field) or ""
 
 
 async def _run_single(
@@ -241,6 +241,29 @@ def cmd_report(args) -> int:
     return 0
 
 
+def cmd_ui(args) -> int:
+    _apply_workdir(args.workdir)
+    import uvicorn
+    import webbrowser
+    import threading
+
+    port = args.port
+    host = args.host
+    url = f"http://{host}:{port}"
+    print(f"Starting VoxArena web UI server at {url}...")
+
+    def open_browser():
+        time.sleep(1.0)
+        try:
+            webbrowser.open(url)
+        except Exception as e:
+            print(f"Warning: could not open browser automatically: {e}")
+
+    threading.Thread(target=open_browser, daemon=True).start()
+    uvicorn.run("voxarena.main:app", host=host, port=port, log_level="info")
+    return 0
+
+
 def _add_run_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--transport", default="direct-injection",
                         choices=["direct-injection", "webrtc-local"])
@@ -298,6 +321,16 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Project workdir to read results/ from (default: cwd).")
     rep.add_argument("--quiet", action="store_true")
     rep.set_defaults(func=cmd_report)
+
+    ui = sub.add_parser("ui",
+                        help="Start the web control panel UI server.")
+    ui.add_argument("--port", type=int, default=8000,
+                    help="Port to run the UI server on (default: 8000).")
+    ui.add_argument("--host", default="127.0.0.1",
+                    help="Host address to bind the UI server to (default: 127.0.0.1).")
+    ui.add_argument("--workdir", default=None,
+                    help="Project workdir containing script/ and results/ (default: cwd).")
+    ui.set_defaults(func=cmd_ui)
 
     return parser
 

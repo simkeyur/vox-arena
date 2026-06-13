@@ -97,6 +97,14 @@ def init_db():
         if "evaluation_passed" not in existing_cols:
             conn.execute("ALTER TABLE turns ADD COLUMN evaluation_passed INTEGER;")
 
+        # Create settings table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
+        """)
+
         conn.commit()
     _INITIALIZED = True
     logger.success("SQLite database initialized successfully.")

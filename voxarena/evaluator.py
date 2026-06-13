@@ -14,8 +14,9 @@ class SaffronLeafEvaluator:
         from voxarena.providers import api_key_env
         self.provider = provider
         if api_key is None:
+            from voxarena.config import get_setting
             env_name = api_key_env(provider)
-            api_key = os.environ.get(env_name) or getattr(settings, env_name, None)
+            api_key = get_setting(env_name)
         self.api_key = api_key
         
         # Load static knowledge base from the bundled Saffron Leaf demo data

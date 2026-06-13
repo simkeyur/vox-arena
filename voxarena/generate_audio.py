@@ -91,8 +91,9 @@ def main():
     logger.info(f"Found {len(utterances)} utterances to generate.")
     
     # Check for active API credentials
-    openai_key = settings.OPENAI_API_KEY
-    google_key = settings.GOOGLE_API_KEY
+    from voxarena.config import get_setting
+    openai_key = get_setting("OPENAI_API_KEY")
+    google_key = get_setting("GOOGLE_API_KEY")
     
     is_mac = sys.platform == "darwin"
     

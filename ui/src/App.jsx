@@ -392,9 +392,17 @@ function App() {
   // Settings screen state
   const [settingsGeminiModel, setSettingsGeminiModel] = useState('');
   const [settingsOpenaiModel, setSettingsOpenaiModel] = useState('');
-  const [settingsUtterances, setSettingsUtterances] = useState('');
+  const [settingsGoogleApiKey, setSettingsGoogleApiKey] = useState('');
+  const [settingsOpenaiApiKey, setSettingsOpenaiApiKey] = useState('');
+  const [geminiModelSelect, setGeminiModelSelect] = useState('gemini-3.1-flash-live-preview');
+  const [geminiModelCustom, setGeminiModelCustom] = useState('');
+  const [openaiModelSelect, setOpenaiModelSelect] = useState('gpt-realtime-2');
+  const [openaiModelCustom, setOpenaiModelCustom] = useState('');
+  const [geminiSaveMsg, setGeminiSaveMsg] = useState('');
+  const [openaiSaveMsg, setOpenaiSaveMsg] = useState('');
+  const [settingsUtterances, setSettingsUtterances] = useState([]);
+  const [rawArgsState, setRawArgsState] = useState({});
   const [settingsLoaded, setSettingsLoaded] = useState(false);
-  const [settingsSaveMsg, setSettingsSaveMsg] = useState('');
   const [utterancesSaveMsg, setUtterancesSaveMsg] = useState('');
   const [resetMsg, setResetMsg] = useState('');
   
@@ -744,53 +752,136 @@ function App() {
 
     Promise.all([
       fetch(`${backendUrl}/api/settings`).then((res) => res.json()),
-      fetch(`${backendUrl}/api/utterances`).then((res) => res.json())
+      fetch(`${backendUrl}/api/utterances/json`).then((res) => res.json())
     ])
       .then(([settingsData, utterancesData]) => {
-        setSettingsGeminiModel(settingsData.gemini_model || '');
-        setSettingsOpenaiModel(settingsData.openai_model || '');
-        setSettingsUtterances(utterancesData.content || '');
+        setSettingsGoogleApiKey(settingsData.google_api_key || '');
+        setSettingsOpenaiApiKey(settingsData.openai_api_key || '');
+
+        const gModel = settingsData.gemini_model || '';
+        if (gModel === '' || ['gemini-3.1-flash-live-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-8b', 'gemini-2.0-flash-exp'].includes(gModel)) {
+          setGeminiModelSelect(gModel || 'gemini-3.1-flash-live-preview');
+          setGeminiModelCustom('');
+        } else {
+          setGeminiModelSelect('custom');
+          setGeminiModelCustom(gModel);
+        }
+
+        const oModel = settingsData.openai_model || '';
+        if (oModel === '' || ['gpt-realtime-2', 'gpt-4o-realtime-preview', 'gpt-4o-mini-realtime-preview'].includes(oModel)) {
+          setOpenaiModelSelect(oModel || 'gpt-realtime-2');
+          setOpenaiModelCustom('');
+        } else {
+          setOpenaiModelSelect('custom');
+          setOpenaiModelCustom(oModel);
+        }
+
+        const rawArgs = {};
+        if (Array.isArray(utterancesData)) {
+          utterancesData.forEach((u, idx) => {
+            rawArgs[idx] = u.expect?.args ? JSON.stringify(u.expect.args) : '';
+          });
+        }
+        setRawArgsState(rawArgs);
+
+        setSettingsUtterances(Array.isArray(utterancesData) ? utterancesData : []);
         setSettingsLoaded(true);
       })
       .catch((err) => console.error('Error loading settings:', err));
   }, [activeTab, settingsLoaded]);
 
-  const handleSaveModelSettings = () => {
-    setSettingsSaveMsg('Saving...');
+  const handleSaveModelSettings = (provider) => {
+    const isGemini = provider === 'gemini';
+    const setMsg = isGemini ? setGeminiSaveMsg : setOpenaiSaveMsg;
+    setMsg('Saving...');
+
+    const geminiModel = geminiModelSelect === 'custom' ? geminiModelCustom : geminiModelSelect;
+    const openaiModel = openaiModelSelect === 'custom' ? openaiModelCustom : openaiModelSelect;
+
     fetch(`${backendUrl}/api/settings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        gemini_model: settingsGeminiModel,
-        openai_model: settingsOpenaiModel
+        gemini_model: geminiModel,
+        openai_model: openaiModel,
+        google_api_key: isGemini ? settingsGoogleApiKey : '••••••••',
+        openai_api_key: !isGemini ? settingsOpenaiApiKey : '••••••••'
       })
     })
-      .then((res) => res.json())
-      .then((data) => {
-        setSettingsSaveMsg('Saved.');
-        setBackendConfig((prev) => ({ ...prev, gemini_model: data.gemini_model, openai_model: data.openai_model }));
-        setTimeout(() => setSettingsSaveMsg(''), 2000);
+      .then((res) => {
+        if (!res.ok) throw new Error('Failed to save settings');
+        return res.json();
       })
-      .catch((err) => setSettingsSaveMsg(`Error: ${err.message}`));
+      .then(() => {
+        setMsg('Saved.');
+        fetch(`${backendUrl}/api/status`)
+          .then((res) => res.json())
+          .then((cfg) => setBackendConfig(cfg))
+          .catch((e) => console.error('Error updating config status:', e));
+        setTimeout(() => setMsg(''), 2000);
+      })
+      .catch((err) => setMsg(`Error: ${err.message}`));
   };
 
   const handleSaveUtterances = () => {
     setUtterancesSaveMsg('Saving...');
-    fetch(`${backendUrl}/api/utterances`, {
+    fetch(`${backendUrl}/api/utterances/json`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: settingsUtterances })
+      body: JSON.stringify({ utterances: settingsUtterances })
     })
-      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
-      .then(({ ok, data }) => {
-        if (ok) {
-          setUtterancesSaveMsg(`Saved (${data.count} utterances).`);
-        } else {
-          setUtterancesSaveMsg(`Error: ${data.detail || 'failed to save'}`);
-        }
-        setTimeout(() => setUtterancesSaveMsg(''), 4000);
+      .then((res) => {
+        if (!res.ok) throw new Error('Failed to save utterances');
+        return res.json();
+      })
+      .then((data) => {
+        setUtterancesSaveMsg(`Saved (${data.count} utterances).`);
+        setTimeout(() => setUtterancesSaveMsg(''), 3000);
       })
       .catch((err) => setUtterancesSaveMsg(`Error: ${err.message}`));
+  };
+
+  const updateUtteranceField = (index, field, value) => {
+    const updated = [...settingsUtterances];
+    updated[index] = { ...updated[index], [field]: value };
+    setSettingsUtterances(updated);
+  };
+
+  const updateUtteranceExpectType = (index, type) => {
+    const updated = [...settingsUtterances];
+    const current = updated[index];
+    if (type === 'none') {
+      const { expect, ...rest } = current;
+      updated[index] = rest;
+    } else if (type === 'response') {
+      updated[index] = { ...current, expect: { response: current.expect?.response || '' } };
+    } else if (type === 'tool') {
+      updated[index] = { ...current, expect: { tool: current.expect?.tool || '', args: current.expect?.args || {} } };
+    }
+    setSettingsUtterances(updated);
+  };
+
+  const updateUtteranceExpectField = (index, field, value) => {
+    const updated = [...settingsUtterances];
+    const current = updated[index];
+    updated[index] = {
+      ...current,
+      expect: {
+        ...current.expect,
+        [field]: value
+      }
+    };
+    setSettingsUtterances(updated);
+  };
+
+  const handleArgsChange = (index, textValue) => {
+    setRawArgsState((prev) => ({ ...prev, [index]: textValue }));
+    try {
+      const parsed = JSON.parse(textValue);
+      updateUtteranceExpectField(index, 'args', parsed);
+    } catch (e) {
+      // Invalid JSON is fine while typing
+    }
   };
 
   const handleDeleteRun = (runId) => {
@@ -1615,85 +1706,262 @@ function App() {
 
         {activeTab === 'settings' && (
           <div className="scrollable-tab-container">
+            {/* Google Gemini Settings */}
             <div className="card">
               <div className="card-header">
-                <span className="card-title">API Keys</span>
+                <span className="card-title">Google Gemini Configuration</span>
               </div>
               <div className="card-body">
-                <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
-                  VoxArena needs API keys for the providers you want to test. Add them to the{' '}
-                  <code>.env</code> file at the root of the project ({backendConfig?.base_dir || 'project root'}),
-                  then restart the server for changes to take effect.
-                </p>
-                {backendConfig?.providers?.map((p) => (
-                  <div key={p} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>
-                      {p.toUpperCase()}_API_KEY
-                    </span>
-                    <span className={`status-badge ${backendConfig?.has_api_key?.[p] ? 'completed' : 'failed'}`}>
-                      {backendConfig?.has_api_key?.[p] ? 'Configured' : 'Missing'}
-                    </span>
-                  </div>
-                ))}
-                <div className="terminal" style={{ marginTop: 12, flex: 'none' }}>
-                  <div className="terminal-line">GOOGLE_API_KEY=your-gemini-api-key</div>
-                  <div className="terminal-line">OPENAI_API_KEY=your-openai-api-key</div>
+                <div className="form-group" style={{ marginBottom: 12 }}>
+                  <label className="form-label">Google Gemini API Key</label>
+                  <input
+                    type="password"
+                    className="text-input"
+                    value={settingsGoogleApiKey}
+                    onChange={(e) => setSettingsGoogleApiKey(e.target.value)}
+                    placeholder={settingsGoogleApiKey ? "••••••••" : "Enter Google API Key"}
+                  />
                 </div>
-              </div>
-            </div>
 
-            <div className="card" style={{ marginTop: 24 }}>
-              <div className="card-header">
-                <span className="card-title">Model Configuration</span>
-              </div>
-              <div className="card-body">
-                <div className="form-group">
+                <div className="form-group" style={{ marginBottom: 12 }}>
                   <label className="form-label">Gemini Model</label>
-                  <input
-                    type="text"
-                    className="text-input"
-                    value={settingsGeminiModel}
-                    onChange={(e) => setSettingsGeminiModel(e.target.value)}
-                    placeholder="gemini-3.1-flash-live-preview"
-                  />
+                  <select
+                    className="select-input"
+                    value={geminiModelSelect}
+                    onChange={(e) => setGeminiModelSelect(e.target.value)}
+                  >
+                    <option value="gemini-3.1-flash-live-preview">Gemini 3.1 Flash Live Preview (Default)</option>
+                    <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                    <option value="gemini-2.5-flash-8b">Gemini 2.5 Flash 8B</option>
+                    <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Exp</option>
+                    <option value="custom">Custom Model...</option>
+                  </select>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">OpenAI Model</label>
-                  <input
-                    type="text"
-                    className="text-input"
-                    value={settingsOpenaiModel}
-                    onChange={(e) => setSettingsOpenaiModel(e.target.value)}
-                    placeholder="gpt-realtime-2"
-                  />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <button className="btn btn-primary" onClick={handleSaveModelSettings}>
-                    Save Model Settings
+
+                {geminiModelSelect === 'custom' && (
+                  <div className="form-group" style={{ marginBottom: 12 }}>
+                    <label className="form-label">Custom Gemini Model ID</label>
+                    <input
+                      type="text"
+                      className="text-input"
+                      value={geminiModelCustom}
+                      onChange={(e) => setGeminiModelCustom(e.target.value)}
+                      placeholder="e.g. gemini-3.1-flash-live-preview"
+                    />
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
+                  <button className="btn btn-primary" onClick={() => handleSaveModelSettings('gemini')}>
+                    Save Gemini Settings
                   </button>
-                  {settingsSaveMsg && <span style={{ fontSize: 13, color: 'var(--muted)' }}>{settingsSaveMsg}</span>}
+                  {geminiSaveMsg && <span style={{ fontSize: 13, color: 'var(--muted)' }}>{geminiSaveMsg}</span>}
                 </div>
               </div>
             </div>
 
+            {/* OpenAI Settings */}
             <div className="card" style={{ marginTop: 24 }}>
               <div className="card-header">
-                <span className="card-title">Scripted Conversation Utterances (YAML)</span>
+                <span className="card-title">OpenAI Configuration</span>
               </div>
               <div className="card-body">
-                <div className="form-group">
-                  <label className="form-label">
-                    Edit the test utterances run during a scripted session. Each entry needs an <code>id</code>, <code>text</code>, and optional <code>expect</code> block.
-                  </label>
-                  <textarea
+                <div className="form-group" style={{ marginBottom: 12 }}>
+                  <label className="form-label">OpenAI API Key</label>
+                  <input
+                    type="password"
                     className="text-input"
-                    style={{ fontFamily: 'var(--font-mono)', fontSize: 12, minHeight: 400, resize: 'vertical', whiteSpace: 'pre' }}
-                    value={settingsUtterances}
-                    onChange={(e) => setSettingsUtterances(e.target.value)}
-                    spellCheck={false}
+                    value={settingsOpenaiApiKey}
+                    onChange={(e) => setSettingsOpenaiApiKey(e.target.value)}
+                    placeholder={settingsOpenaiApiKey ? "••••••••" : "Enter OpenAI API Key"}
                   />
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+
+                <div className="form-group" style={{ marginBottom: 12 }}>
+                  <label className="form-label">OpenAI Model</label>
+                  <select
+                    className="select-input"
+                    value={openaiModelSelect}
+                    onChange={(e) => setOpenaiModelSelect(e.target.value)}
+                  >
+                    <option value="gpt-realtime-2">GPT Realtime 2 (Default)</option>
+                    <option value="gpt-4o-realtime-preview">GPT-4o Realtime Preview</option>
+                    <option value="gpt-4o-mini-realtime-preview">GPT-4o mini Realtime Preview</option>
+                    <option value="custom">Custom Model...</option>
+                  </select>
+                </div>
+
+                {openaiModelSelect === 'custom' && (
+                  <div className="form-group" style={{ marginBottom: 12 }}>
+                    <label className="form-label">Custom OpenAI Model ID</label>
+                    <input
+                      type="text"
+                      className="text-input"
+                      value={openaiModelCustom}
+                      onChange={(e) => setOpenaiModelCustom(e.target.value)}
+                      placeholder="e.g. gpt-realtime-2"
+                    />
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
+                  <button className="btn btn-primary" onClick={() => handleSaveModelSettings('openai')}>
+                    Save OpenAI Settings
+                  </button>
+                  {openaiSaveMsg && <span style={{ fontSize: 13, color: 'var(--muted)' }}>{openaiSaveMsg}</span>}
+                </div>
+              </div>
+            </div>
+
+            {/* Interactive Utterances List Editor */}
+            <div className="card" style={{ marginTop: 24 }}>
+              <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="card-title">Scripted Test Utterances ({settingsUtterances.length})</span>
+                <button 
+                  className="btn btn-primary" 
+                  onClick={() => {
+                    const nextIndex = settingsUtterances.length;
+                    const nextId = `u${String(nextIndex + 1).padStart(2, '0')}`;
+                    setSettingsUtterances([...settingsUtterances, { id: nextId, text: '' }]);
+                    setRawArgsState((prev) => ({ ...prev, [nextIndex]: '' }));
+                  }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', fontSize: 12 }}
+                >
+                  <Plus size={14} /> Add Utterance
+                </button>
+              </div>
+              <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {settingsUtterances.length === 0 ? (
+                  <p style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, padding: '20px 0' }}>
+                    No utterances configured. Click "Add Utterance" to get started.
+                  </p>
+                ) : (
+                  settingsUtterances.map((u, idx) => {
+                    const expectType = u.expect?.tool ? 'tool' : u.expect?.response ? 'response' : 'none';
+                    
+                    return (
+                      <div key={idx} className="utterance-edit-row" style={{
+                        padding: 10,
+                        border: '1px solid var(--border)',
+                        borderRadius: 8,
+                        backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                        position: 'relative'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Turn #{idx + 1}</span>
+                            <input
+                              type="text"
+                              className="text-input"
+                              value={u.id}
+                              onChange={(e) => updateUtteranceField(idx, 'id', e.target.value)}
+                              style={{ width: 60, padding: '2px 4px', fontSize: 11, fontWeight: 'bold', fontFamily: 'var(--font-mono)' }}
+                              placeholder="ID"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = settingsUtterances.filter((_, i) => i !== idx);
+                              setSettingsUtterances(updated);
+                              const nextRawArgs = {};
+                              updated.forEach((item, i) => {
+                                const oldIdx = i >= idx ? i + 1 : i;
+                                nextRawArgs[i] = rawArgsState[oldIdx] || '';
+                              });
+                              setRawArgsState(nextRawArgs);
+                            }}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: 'var(--error)',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              padding: 4
+                            }}
+                            title="Delete Utterance"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <div className="form-group" style={{ margin: 0 }}>
+                            <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Prompt text</label>
+                            <input
+                              type="text"
+                              className="text-input"
+                              value={u.text}
+                              onChange={(e) => updateUtteranceField(idx, 'text', e.target.value)}
+                              placeholder="Enter the phrase user should say..."
+                              style={{ fontSize: 12, padding: '4px 8px' }}
+                            />
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 2fr', gap: 8, alignItems: 'end' }}>
+                            <div className="form-group" style={{ margin: 0 }}>
+                              <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Expectation validation</label>
+                              <select
+                                className="select-input"
+                                value={expectType}
+                                onChange={(e) => updateUtteranceExpectType(idx, e.target.value)}
+                                style={{ fontSize: 11, padding: '3px 6px', height: 26 }}
+                              >
+                                <option value="none">None (No check)</option>
+                                <option value="response">Expected Response (Substring)</option>
+                                <option value="tool">Expected Tool Call</option>
+                              </select>
+                            </div>
+
+                            {expectType === 'response' && (
+                              <div className="form-group" style={{ margin: 0 }}>
+                                <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Expected response phrase</label>
+                                <input
+                                  type="text"
+                                  className="text-input"
+                                  value={u.expect?.response || ''}
+                                  onChange={(e) => updateUtteranceExpectField(idx, 'response', e.target.value)}
+                                  placeholder="e.g. open from 9am to 10pm"
+                                  style={{ fontSize: 12, padding: '3px 6px', height: 26 }}
+                                />
+                              </div>
+                            )}
+
+                            {expectType === 'tool' && (
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                                <div className="form-group" style={{ margin: 0 }}>
+                                  <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Expected tool name</label>
+                                  <input
+                                    type="text"
+                                    className="text-input"
+                                    value={u.expect?.tool || ''}
+                                    onChange={(e) => updateUtteranceExpectField(idx, 'tool', e.target.value)}
+                                    placeholder="e.g. get_hours"
+                                    style={{ fontSize: 12, padding: '3px 6px', height: 26 }}
+                                  />
+                                </div>
+                                <div className="form-group" style={{ margin: 0 }}>
+                                  <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Expected arguments (JSON)</label>
+                                  <input
+                                    type="text"
+                                    className="text-input"
+                                    value={rawArgsState[idx] || ''}
+                                    onChange={(e) => handleArgsChange(idx, e.target.value)}
+                                    placeholder='e.g. {"guests": 2}'
+                                    style={{ fontSize: 11, fontFamily: 'var(--font-mono)', padding: '3px 6px', height: 26 }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 }}>
                   <button className="btn btn-primary" onClick={handleSaveUtterances}>
                     Save Utterances
                   </button>
@@ -1702,6 +1970,7 @@ function App() {
               </div>
             </div>
 
+            {/* Danger Zone */}
             <div className="card danger-zone" style={{ marginTop: 24 }}>
               <div className="card-header">
                 <span className="card-title" style={{ color: 'var(--error)' }}>Danger Zone</span>
