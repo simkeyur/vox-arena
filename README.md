@@ -29,26 +29,26 @@ Picking a realtime voice provider usually means re-implementing your agent for e
 
 ```mermaid
 flowchart TD
-    A[Recorded WAVs<br/><i>script/audio/*.wav</i>] --> B[Injection Harness<br/><i>src/harness.py</i>]
-    B --> C[Pipecat Pipeline]
+    A["Recorded WAVs<br/>script/audio/*.wav"] --> B["Injection Harness<br/>src/harness.py"]
+    B --> C
 
-    subgraph C [Pipecat Pipeline]
+    subgraph C ["Pipecat Pipeline"]
         direction LR
-        C1[Audio Injector] --> C2[Provider Adapter]
-        C2 --> C3[Audio Capture]
-        C3 --> C4[Metrics Collector]
+        C1["Audio Injector"] --> C2["Provider Adapter"]
+        C2 --> C3["Audio Capture"]
+        C3 --> C4["Metrics Collector"]
     end
 
-    C2 <--> D{{Provider Backend}}
-    D --> D1[Gemini Live]
-    D --> D2[OpenAI Realtime]
-    D --> D3[...future providers]
+    C2 <--> D{{"Provider Backend"}}
+    D --> D1["Gemini Live"]
+    D --> D2["OpenAI Realtime"]
+    D --> D3["...future providers"]
 
-    C4 --> E[Run Manifest<br/><i>results/{provider}/{run_id}/manifest.json</i>]
-    E --> F[(SQLite Index<br/>runs.db)]
+    C4 --> E["Run Manifest<br/>results/PROVIDER/RUN_ID/manifest.json"]
+    E --> F[("SQLite Index<br/>runs.db")]
 
-    F <--> G[FastAPI Backend<br/><i>src/main.py</i>]
-    G <--> H[React Control Panel<br/><i>ui/</i>]
+    F <--> G["FastAPI Backend<br/>src/main.py"]
+    G <--> H["React Control Panel<br/>ui/"]
 
     style D1 fill:#4285F4,color:#fff,stroke:#333
     style D2 fill:#10A37F,color:#fff,stroke:#333
