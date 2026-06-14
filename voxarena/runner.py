@@ -74,9 +74,13 @@ async def run_evaluation(
     transport: str,
     run_id: str,
     num_turns: Optional[int] = None,
-    script: Optional[str | List[Dict[str, Any]]] = None,
+    utterances: Optional[List[Dict[str, Any]]] = None,
 ) -> RunManifest:
     """Drive a single scripted evaluation end-to-end and return the final manifest.
+
+    ``utterances`` is an explicit list of turn dicts. Pass ``None`` to let the
+    harness load from SQLite (UI mode). The CLI is expected to parse JSON/YAML
+    files itself and pass the resulting list in.
 
     The harness writes its own manifest to disk; on uncaught failure we mark the
     manifest as ``failed`` so callers (and the UI) can see the error. Stopping
@@ -94,10 +98,7 @@ async def run_evaluation(
         harness = EvaluationHarness(config, agent, api_key, run_id)
         ACTIVE_HARNESSES[run_id] = harness
 
-        await harness.run_session(
-            script,
-            num_turns=num_turns,
-        )
+        await harness.run_session(utterances=utterances, num_turns=num_turns)
         return RunManifest.load(harness.manifest.manifest_path)
     except Exception as e:
         logger.error(f"Run {run_id} failed: {e}")
@@ -109,11 +110,11 @@ async def run_evaluation(
 
 async def run_evaluations_parallel(
     specs: list[tuple[str, str, str, str, Optional[int]]],
-    script: Optional[str | List[Dict[str, Any]]] = None,
+    utterances: Optional[List[Dict[str, Any]]] = None,
 ) -> list[RunManifest]:
     """Run multiple ``(provider, model, transport, run_id, num_turns)`` specs in parallel."""
     return await asyncio.gather(*[
-        run_evaluation(p, m, t, rid, n, script) for p, m, t, rid, n in specs
+        run_evaluation(p, m, t, rid, n, utterances) for p, m, t, rid, n in specs
     ])
 
 

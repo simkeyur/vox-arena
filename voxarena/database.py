@@ -109,41 +109,19 @@ def init_db():
             CREATE TABLE IF NOT EXISTS utterances (
                 id TEXT PRIMARY KEY,
                 text TEXT NOT NULL,
-                expect TEXT
+                expect TEXT,
+                position INTEGER NOT NULL DEFAULT 0
             );
         """)
 
-        # Bootstrap default utterances if table is empty
-        count = conn.execute("SELECT COUNT(*) FROM utterances;").fetchone()[0]
-        if count == 0:
-            import yaml
-            default_yaml = None
-            script_yaml = os.path.join(settings.SCRIPT_DIR, "utterances.yaml")
-            if os.path.exists(script_yaml):
-                default_yaml = script_yaml
-            else:
-                try:
-                    import importlib.resources
-                    pkg_yaml = importlib.resources.files("voxarena").joinpath("default_script").joinpath("utterances.yaml")
-                    if pkg_yaml.exists():
-                        default_yaml = str(pkg_yaml)
-                except Exception:
-                    pass
-
-            if default_yaml:
-                try:
-                    with open(default_yaml, "r") as f:
-                        parsed = yaml.safe_load(f)
-                    if isinstance(parsed, list):
-                        for u in parsed:
-                            expect_json = json.dumps(u.get("expect") or {})
-                            conn.execute(
-                                "INSERT OR REPLACE INTO utterances (id, text, expect) VALUES (?, ?, ?);",
-                                (u["id"], u["text"], expect_json)
-                            )
-                        logger.info(f"Bootstrapped {len(parsed)} utterances from {default_yaml} into SQLite.")
-                except Exception as e:
-                    logger.error(f"Failed to bootstrap database utterances: {e}")
+        # Migrate older databases that predate the position column. Backfill
+        # positions by current rowid so existing rows keep their relative order.
+        utt_cols = {row["name"] for row in conn.execute("PRAGMA table_info(utterances);").fetchall()}
+        if "position" not in utt_cols:
+            conn.execute("ALTER TABLE utterances ADD COLUMN position INTEGER NOT NULL DEFAULT 0;")
+            conn.execute(
+                "UPDATE utterances SET position = (SELECT COUNT(*) FROM utterances u2 WHERE u2.rowid <= utterances.rowid);"
+            )
 
         conn.commit()
     _INITIALIZED = True
@@ -397,10 +375,12 @@ def reset_db():
 
 
 def load_utterances_from_db() -> List[Dict[str, Any]]:
-    """Retrieve all conversation utterances from SQLite."""
+    """Retrieve all conversation utterances from SQLite, preserving insertion order."""
     _ensure_initialized()
     with get_db_connection() as conn:
-        rows = conn.execute("SELECT id, text, expect FROM utterances ORDER BY id ASC;").fetchall()
+        rows = conn.execute(
+            "SELECT id, text, expect FROM utterances ORDER BY position ASC, id ASC;"
+        ).fetchall()
         utterances = []
         for row in rows:
             expect = {}
@@ -412,20 +392,91 @@ def load_utterances_from_db() -> List[Dict[str, Any]]:
             utterances.append({
                 "id": row["id"],
                 "text": row["text"],
-                "expect": expect
+                "expect": expect,
             })
         return utterances
 
 
 def save_utterances_to_db(utterances: List[Dict[str, Any]]) -> None:
-    """Overwrite all conversation utterances in SQLite."""
+    """Atomically replace conversation utterances in SQLite.
+
+    Uses upsert + delete-missing so a mid-write failure can never leave the
+    table empty (unlike DELETE-then-INSERT). All writes happen in a single
+    transaction. Position is taken from the payload order.
+    """
+    _ensure_initialized()
+    rows = [
+        (u["id"], u["text"], json.dumps(u.get("expect") or {}), idx)
+        for idx, u in enumerate(utterances)
+    ]
+    keep_ids = [r[0] for r in rows]
+
+    with get_db_connection() as conn:
+        conn.execute("BEGIN;")
+        try:
+            if rows:
+                conn.executemany("""
+                    INSERT INTO utterances (id, text, expect, position)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        text = excluded.text,
+                        expect = excluded.expect,
+                        position = excluded.position;
+                """, rows)
+                placeholders = ",".join("?" * len(keep_ids))
+                conn.execute(
+                    f"DELETE FROM utterances WHERE id NOT IN ({placeholders});",
+                    keep_ids,
+                )
+            else:
+                conn.execute("DELETE FROM utterances;")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def bootstrap_utterances_if_empty() -> None:
+    """One-time seed of the utterances table from a default YAML script.
+
+    Kept out of init_db so the disk read and YAML parse don't run inside schema
+    setup (and don't block the FastAPI event loop during the lifespan hook).
+    """
     _ensure_initialized()
     with get_db_connection() as conn:
-        conn.execute("DELETE FROM utterances;")
-        for u in utterances:
-            expect_json = json.dumps(u.get("expect") or {})
-            conn.execute(
-                "INSERT INTO utterances (id, text, expect) VALUES (?, ?, ?);",
-                (u["id"], u["text"], expect_json)
-            )
-        conn.commit()
+        count = conn.execute("SELECT COUNT(*) FROM utterances;").fetchone()[0]
+    if count > 0:
+        return
+
+    import yaml
+    default_yaml = None
+    script_yaml = os.path.join(settings.SCRIPT_DIR, "utterances.yaml")
+    if os.path.exists(script_yaml):
+        default_yaml = script_yaml
+    else:
+        try:
+            import importlib.resources
+            pkg_yaml = importlib.resources.files("voxarena").joinpath("default_script").joinpath("utterances.yaml")
+            if pkg_yaml.exists():
+                default_yaml = str(pkg_yaml)
+        except Exception:
+            pass
+
+    if not default_yaml:
+        return
+
+    try:
+        with open(default_yaml, "r") as f:
+            parsed = yaml.safe_load(f)
+    except Exception as e:
+        logger.error(f"Failed to read default utterances at {default_yaml}: {e}")
+        return
+
+    if not isinstance(parsed, list) or not parsed:
+        return
+
+    try:
+        save_utterances_to_db(parsed)
+        logger.info(f"Bootstrapped {len(parsed)} utterances from {default_yaml} into SQLite.")
+    except Exception as e:
+        logger.error(f"Failed to bootstrap database utterances: {e}")

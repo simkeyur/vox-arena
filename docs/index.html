@@ -68,9 +68,7 @@
     /* Layout */
     .layout {
       display: grid;
-      grid-template-columns: 256px 1fr;
-      max-width: 1400px;
-      margin: 0 auto;
+      grid-template-columns: 212px 1fr;
     }
 
     /* Sidebar */
@@ -79,7 +77,7 @@
       position: sticky;
       top: 0;
       border-right: 1px solid var(--border);
-      padding: 28px 24px;
+      padding: 24px 16px;
       display: flex;
       flex-direction: column;
       gap: 4px;
@@ -94,7 +92,7 @@
     }
 
     .brand img {
-      height: 26px;
+      height: 38px;
       width: auto;
     }
 
@@ -191,10 +189,70 @@
       max-width: 880px;
     }
 
+    /* Mobile top bar */
+    .mobile-topbar {
+      display: none;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    .mobile-topbar .brand {
+      margin-bottom: 0;
+    }
+
+    .mobile-topbar img { height: 30px; width: auto; }
+
+    .menu-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--fg);
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .menu-btn svg { width: 18px; height: 18px; }
+
+    .nav-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+      z-index: 90;
+    }
+
     @media (max-width: 1024px) {
       .layout { grid-template-columns: 1fr; }
-      aside.sidebar { display: none; }
-      main { padding: 40px 24px 80px; }
+      main { padding: 32px 24px 80px; }
+
+      .mobile-topbar { display: flex; }
+
+      aside.sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 260px;
+        z-index: 100;
+        background: var(--bg);
+        transform: translateX(-100%);
+        transition: transform 0.2s ease;
+        box-shadow: 0 0 40px rgba(0, 0, 0, 0.35);
+      }
+
+      body.nav-open aside.sidebar { transform: translateX(0); }
+      body.nav-open .nav-backdrop { display: block; }
     }
 
     section {
@@ -467,14 +525,14 @@
 
     .diagram-title svg { width: 13px; height: 13px; }
 
-    .diagram svg { width: 100%; height: auto; color: var(--fg); }
+    .diagram > svg { width: 100%; height: auto; color: var(--fg); display: block; }
 
-    .diagram svg text {
+    .diagram > svg text {
       fill: currentColor;
       font-family: 'Inter', sans-serif;
     }
 
-    .diagram svg .node {
+    .diagram > svg .node {
       fill: var(--surface);
       stroke: var(--border-strong);
       stroke-width: 1;
@@ -728,6 +786,18 @@
     <symbol id="i-database" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></symbol>
   </defs>
 </svg>
+
+<header class="mobile-topbar">
+  <div class="brand">
+    <img id="brand-logo-mobile" src="logo-dark.png" alt="VoxArena" />
+    <span class="brand-pill">Docs</span>
+  </div>
+  <button class="menu-btn" id="menu-open" aria-label="Open navigation">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" x2="21" y1="6" y2="6"/><line x1="3" x2="21" y1="12" y2="12"/><line x1="3" x2="21" y1="18" y2="18"/></svg>
+  </button>
+</header>
+
+<div class="nav-backdrop" id="nav-backdrop"></div>
 
 <div class="layout">
 
@@ -1403,17 +1473,20 @@ register_adapter("my-provider", MyProviderAdapter, api_key_env="MY_PROVIDER_API_
   const themeLabel = document.getElementById('theme-label');
   const brandLogo = document.getElementById('brand-logo');
 
+  const brandLogoMobile = document.getElementById('brand-logo-mobile');
+
   function applyTheme(t) {
     root.setAttribute('data-theme', t);
+    const logoSrc = t === 'light' ? 'logo.png' : 'logo-dark.png';
     if (t === 'light') {
       themeIcon.innerHTML = '<use href="#i-moon"/>';
       themeLabel.textContent = 'Dark';
-      brandLogo.src = 'logo.png';
     } else {
       themeIcon.innerHTML = '<use href="#i-sun"/>';
       themeLabel.textContent = 'Light';
-      brandLogo.src = 'logo-dark.png';
     }
+    brandLogo.src = logoSrc;
+    if (brandLogoMobile) brandLogoMobile.src = logoSrc;
     try { localStorage.setItem('voxarena-theme', t); } catch (e) {}
   }
   themeToggle.addEventListener('click', () => {
@@ -1424,6 +1497,15 @@ register_adapter("my-provider", MyProviderAdapter, api_key_env="MY_PROVIDER_API_
     if (saved) applyTheme(saved);
     else applyTheme('dark');
   } catch (e) { applyTheme('dark'); }
+
+  // ---------- Mobile nav toggle ----------
+  const menuBtn = document.getElementById('menu-open');
+  const navBackdrop = document.getElementById('nav-backdrop');
+  function closeNav() { document.body.classList.remove('nav-open'); }
+  function openNav()  { document.body.classList.add('nav-open'); }
+  if (menuBtn) menuBtn.addEventListener('click', openNav);
+  if (navBackdrop) navBackdrop.addEventListener('click', closeNav);
+  document.querySelectorAll('[data-nav]').forEach(a => a.addEventListener('click', closeNav));
 
   // ---------- Sidebar scroll-spy ----------
   const navLinks = Array.from(document.querySelectorAll('[data-nav]'));

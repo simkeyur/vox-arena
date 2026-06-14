@@ -18,13 +18,16 @@ from pydantic import BaseModel
 from voxarena import runner
 from voxarena.config import get_setting, is_dev_mode, set_setting, settings
 from voxarena.database import (
+    bootstrap_utterances_if_empty,
     delete_run_from_db,
     init_db,
     list_run_ids,
     list_run_summaries,
     load_run_manifest,
+    load_utterances_from_db,
     reset_db,
     save_run_manifest,
+    save_utterances_to_db,
 )
 from voxarena.manifest import RunManifest
 from voxarena.providers import api_key_env, provider_names
@@ -48,8 +51,9 @@ def _backfill_manifests() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    # Walking disk + parsing JSON shouldn't block the event loop on startup.
+    # Disk walks + YAML/JSON parses shouldn't block the event loop on startup.
     await asyncio.to_thread(_backfill_manifests)
+    await asyncio.to_thread(bootstrap_utterances_if_empty)
     yield
 
 
@@ -157,39 +161,6 @@ async def update_settings(req: SettingsUpdateRequest):
         "gemini_model": req.gemini_model,
         "openai_model": req.openai_model,
     }
-
-
-@app.get("/api/utterances")
-async def get_utterances():
-    """Retrieve raw YAML of scripted conversation utterances (loaded from SQLite)."""
-    try:
-        utterances = load_utterances_from_db()
-        content = yaml.safe_dump(utterances, sort_keys=False, default_flow_style=False)
-        return {"content": content}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-class UtterancesUpdateRequest(BaseModel):
-    content: str
-
-
-@app.post("/api/utterances")
-async def update_utterances(req: UtterancesUpdateRequest):
-    """Overwrite SQLite utterances from a raw YAML text payload."""
-    try:
-        parsed = yaml.safe_load(req.content)
-    except yaml.YAMLError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid YAML: {e}")
-
-    if not isinstance(parsed, list):
-        raise HTTPException(status_code=400, detail="Utterances YAML must be a list of utterance entries.")
-
-    try:
-        save_utterances_to_db(parsed)
-        return {"status": "saved", "count": len(parsed)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/utterances/json")

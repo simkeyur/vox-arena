@@ -12,7 +12,7 @@ import json
 import os
 import sys
 import time
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 from xml.etree.ElementTree import Element, ElementTree, SubElement
 
 
@@ -65,22 +65,48 @@ async def _run_single(
         )
 
     resolved_model = _resolve_model(provider, model, settings)
-    script_path = script
-    if not script_path:
-        json_default = os.path.join(settings.SCRIPT_DIR, "utterances.json")
-        yaml_default = os.path.join(settings.SCRIPT_DIR, "utterances.yaml")
-        if os.path.exists(json_default):
-            script_path = json_default
-        else:
-            script_path = yaml_default
-
-    if not os.path.exists(script_path):
-        raise SystemExit(f"error: script file not found: {script_path}")
+    script_path = _resolve_script_path(script, settings)
+    utterances = _load_script_file(script_path)
 
     run_id = runner.new_run_id(suffix=run_id_suffix)
     return await runner.run_evaluation(
-        provider, resolved_model, transport, run_id, num_turns, script=script_path
+        provider, resolved_model, transport, run_id, num_turns, utterances=utterances
     )
+
+
+def _resolve_script_path(explicit: Optional[str], settings) -> str:
+    """Pick the script file the CLI should run: explicit flag, then JSON default, then YAML default."""
+    if explicit:
+        if not os.path.exists(explicit):
+            raise SystemExit(f"error: script file not found: {explicit}")
+        return explicit
+
+    json_default = os.path.join(settings.SCRIPT_DIR, "utterances.json")
+    yaml_default = os.path.join(settings.SCRIPT_DIR, "utterances.yaml")
+    if os.path.exists(json_default):
+        return json_default
+    if os.path.exists(yaml_default):
+        return yaml_default
+    raise SystemExit(
+        f"error: no script provided and no default found at {json_default} or {yaml_default}."
+    )
+
+
+def _load_script_file(path: str) -> List[Dict[str, Any]]:
+    """Parse a JSON or YAML utterances script from disk into a list of turn dicts."""
+    try:
+        with open(path, "r") as f:
+            if path.endswith(".json"):
+                data = json.load(f)
+            else:
+                import yaml
+                data = yaml.safe_load(f)
+    except Exception as e:
+        raise SystemExit(f"error: failed to parse script {path}: {e}")
+
+    if not isinstance(data, list) or not data:
+        raise SystemExit(f"error: script {path} must be a non-empty list of utterance entries.")
+    return data
 
 
 def _evaluate_thresholds(metrics, args) -> list[dict[str, Any]]:
