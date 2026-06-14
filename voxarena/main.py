@@ -125,6 +125,7 @@ async def get_status():
         "transports": ["direct-injection", "webrtc-local"],
         "gemini_model": get_setting("GEMINI_MODEL") or settings.GEMINI_MODEL,
         "openai_model": get_setting("OPENAI_MODEL") or settings.OPENAI_MODEL,
+        "active_template": get_setting("ACTIVE_TEMPLATE") or "restaurant",
     }
 
 
@@ -238,6 +239,7 @@ async def update_utterances_json(req: UtterancesJsonUpdateRequest):
     """Overwrite SQLite utterances from a parsed JSON array."""
     try:
         save_utterances_to_db(req.utterances)
+        set_setting("ACTIVE_TEMPLATE", "custom")
         return {"status": "saved", "count": len(req.utterances)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save utterances: {e}")
@@ -272,6 +274,7 @@ async def load_template(template_id: str):
                 detail=f"Template '{template_id}' not found. Available: {list(TEMPLATES.keys())}",
             )
         save_utterances_to_db(TEMPLATES[template_id]["utterances"])
+        set_setting("ACTIVE_TEMPLATE", template_id)
         return {
             "status": "loaded",
             "template_id": template_id,

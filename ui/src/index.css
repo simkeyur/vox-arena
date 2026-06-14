@@ -1018,7 +1018,7 @@ a {
 
 .modal-content-card {
   width: 90%;
-  max-width: 550px;
+  max-width: 650px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 16px;

@@ -536,6 +536,16 @@ function App() {
       .then((res) => res.json())
       .then((data) => setTemplates(Array.isArray(data) ? data : []))
       .catch((err) => console.error('Error fetching templates:', err));
+
+    fetch(`${backendUrl}/api/utterances/json`)
+      .then((res) => res.json())
+      .then((data) => {
+        setSettingsUtterances(Array.isArray(data) ? data : []);
+        if (Array.isArray(data) && data.length > 0) {
+          setNumTurns(data.length);
+        }
+      })
+      .catch((err) => console.error('Error fetching utterances:', err));
   }, []);
 
   const [runningId, setRunningId] = useState(null);
@@ -847,6 +857,12 @@ function App() {
       .then((data) => {
         setUtterancesSaveMsg(`Saved (${data.count} utterances).`);
         setTimeout(() => setUtterancesSaveMsg(''), 3000);
+        
+        // Refresh status configuration to update active template (which shifts to "custom")
+        fetch(`${backendUrl}/api/status`)
+          .then((res) => res.json())
+          .then((cfg) => setBackendConfig(cfg))
+          .catch((e) => console.error('Error updating status:', e));
       })
       .catch((err) => setUtterancesSaveMsg(`Error: ${err.message}`));
   };
@@ -877,8 +893,20 @@ function App() {
             }
             setRawArgsState(rawArgs);
             setSettingsUtterances(Array.isArray(uttData) ? uttData : []);
+            
+            // Adjust turns count dynamically to match the newly loaded template size
+            if (Array.isArray(uttData) && uttData.length > 0) {
+              setNumTurns(uttData.length);
+            }
+
             setUtterancesSaveMsg(`Loaded template successfully.`);
             setTimeout(() => setUtterancesSaveMsg(''), 3000);
+
+            // Refresh status configuration to update active template name
+            fetch(`${backendUrl}/api/status`)
+              .then((res) => res.json())
+              .then((cfg) => setBackendConfig(cfg))
+              .catch((e) => console.error('Error updating status:', e));
           });
       })
       .catch((err) => {
@@ -2240,145 +2268,176 @@ function App() {
       </main>
       </div>
 
-      {isNewRunModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsNewRunModalOpen(false)}>
-          <div className="modal-content-card glass-card" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <span className="modal-title">Launch New Benchmark Run</span>
-              <button className="modal-close-btn" onClick={() => setIsNewRunModalOpen(false)}>&times;</button>
-            </div>
-            <div className="modal-body" style={{ color: 'var(--fg)' }}>
-              <div className="form-group" style={{ marginBottom: 16 }}>
-                <label className="checkbox-label" style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input
-                    type="checkbox"
-                    checked={runBothInParallel}
-                    onChange={(e) => setRunBothInParallel(e.target.checked)}
-                  />
-                  Compare Gemini &amp; OpenAI in parallel
-                </label>
-              </div>
+      {isNewRunModalOpen && (() => {
+        const activeTemplateId = backendConfig?.active_template || 'restaurant';
+        const activeTemplate = templates.find(t => t.id === activeTemplateId);
+        const activeTemplateName = activeTemplate ? activeTemplate.name : (activeTemplateId === 'custom' ? 'Custom Usecase' : 'Restaurant Reservation (Saffron Leaf)');
+        const maxTurns = settingsUtterances.length || 10;
 
-              {!runBothInParallel && (
-                <div className="form-row" style={{ marginBottom: 12 }}>
+        return (
+          <div className="modal-overlay" onClick={() => setIsNewRunModalOpen(false)}>
+            <div className="modal-content-card glass-card" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <span className="modal-title">Launch New Benchmark Run</span>
+                <button className="modal-close-btn" onClick={() => setIsNewRunModalOpen(false)}>&times;</button>
+              </div>
+              <div className="modal-body" style={{ color: 'var(--fg)' }}>
+                {/* Active Evaluation Scenario info note */}
+                <div style={{ 
+                  marginBottom: 16, 
+                  padding: '10px 14px', 
+                  borderRadius: 10, 
+                  background: 'rgba(255, 255, 255, 0.02)', 
+                  border: '1px solid var(--border)', 
+                  fontSize: 13, 
+                  textAlign: 'left' 
+                }}>
+                  <div style={{ color: 'var(--muted)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Active Evaluation Scenario
+                  </div>
+                  <div style={{ fontWeight: 600, color: 'var(--fg)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>📋</span> {activeTemplateName}
+                    <span style={{ fontSize: 11, fontWeight: 'normal', color: 'var(--muted)' }}>
+                      ({maxTurns} scripted turns available)
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+                    To edit turns or switch scenarios, please navigate to the <strong>Settings</strong> tab.
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 16 }}>
+                  <label className="checkbox-label" style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={runBothInParallel}
+                      onChange={(e) => setRunBothInParallel(e.target.checked)}
+                    />
+                    Compare Gemini &amp; OpenAI in parallel
+                  </label>
+                </div>
+
+                {!runBothInParallel && (
+                  <div className="form-row" style={{ marginBottom: 12 }}>
+                    <div className="form-group" style={{ flex: 1 }}>
+                      <label className="form-label">Active Provider</label>
+                      <select
+                        className="select-input"
+                        value={selectedProvider}
+                        onChange={(e) => {
+                          const prov = e.target.value;
+                          setSelectedProvider(prov);
+                          if (prov === 'gemini') {
+                            setSelectedModel(backendConfig?.gemini_model || 'gemini-3.1-flash-live-preview');
+                          } else {
+                            setSelectedModel(backendConfig?.openai_model || 'gpt-realtime-2');
+                          }
+                        }}
+                      >
+                        {backendConfig?.providers?.map(p => (
+                          <option key={p} value={p}>{p.toUpperCase()}</option>
+                        )) || (
+                          <>
+                            <option value="gemini">GEMINI</option>
+                            <option value="openai">OPENAI</option>
+                          </>
+                        )}
+                      </select>
+                    </div>
+
+                    <div className="form-group" style={{ flex: 1 }}>
+                      <label className="form-label">Model Version</label>
+                      <select
+                        className="select-input"
+                        value={selectedModel}
+                        onChange={(e) => setSelectedModel(e.target.value)}
+                      >
+                        {selectedProvider === 'gemini' ? (
+                          <>
+                            <option value={backendConfig?.gemini_model || 'gemini-3.1-flash-live-preview'}>
+                              {backendConfig?.gemini_model || 'gemini-3.1-flash-live-preview'} (Default)
+                            </option>
+                            {backendConfig?.gemini_model !== 'gemini-3.1-flash-live-preview' && (
+                              <option value="gemini-3.1-flash-live-preview">gemini-3.1-flash-live-preview</option>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <option value={backendConfig?.openai_model || 'gpt-realtime-2'}>
+                              {backendConfig?.openai_model || 'gpt-realtime-2'} (Default)
+                            </option>
+                            {backendConfig?.openai_model !== 'gpt-realtime-2' && (
+                              <option value="gpt-realtime-2">gpt-realtime-2</option>
+                            )}
+                          </>
+                        )}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                <div className="form-row" style={{ marginBottom: 16 }}>
                   <div className="form-group" style={{ flex: 1 }}>
-                    <label className="form-label">Active Provider</label>
+                    <label className="form-label">Transport Layer</label>
                     <select
                       className="select-input"
-                      value={selectedProvider}
-                      onChange={(e) => {
-                        const prov = e.target.value;
-                        setSelectedProvider(prov);
-                        if (prov === 'gemini') {
-                          setSelectedModel(backendConfig?.gemini_model || 'gemini-3.1-flash-live-preview');
-                        } else {
-                          setSelectedModel(backendConfig?.openai_model || 'gpt-realtime-2');
-                        }
-                      }}
+                      value={selectedTransport}
+                      onChange={(e) => setSelectedTransport(e.target.value)}
                     >
-                      {backendConfig?.providers?.map(p => (
-                        <option key={p} value={p}>{p.toUpperCase()}</option>
+                      {backendConfig?.transports?.map(t => (
+                        <option key={t} value={t}>{t}</option>
                       )) || (
                         <>
-                          <option value="gemini">GEMINI</option>
-                          <option value="openai">OPENAI</option>
+                          <option value="direct-injection">direct-injection</option>
+                          <option value="webrtc-local">webrtc-local</option>
                         </>
                       )}
                     </select>
                   </div>
 
                   <div className="form-group" style={{ flex: 1 }}>
-                    <label className="form-label">Model Version</label>
-                    <select
-                      className="select-input"
-                      value={selectedModel}
-                      onChange={(e) => setSelectedModel(e.target.value)}
-                    >
-                      {selectedProvider === 'gemini' ? (
-                        <>
-                          <option value={backendConfig?.gemini_model || 'gemini-3.1-flash-live-preview'}>
-                            {backendConfig?.gemini_model || 'gemini-3.1-flash-live-preview'} (Default)
-                          </option>
-                          {backendConfig?.gemini_model !== 'gemini-3.1-flash-live-preview' && (
-                            <option value="gemini-3.1-flash-live-preview">gemini-3.1-flash-live-preview</option>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <option value={backendConfig?.openai_model || 'gpt-realtime-2'}>
-                            {backendConfig?.openai_model || 'gpt-realtime-2'} (Default)
-                          </option>
-                          {backendConfig?.openai_model !== 'gpt-realtime-2' && (
-                            <option value="gpt-realtime-2">gpt-realtime-2</option>
-                          )}
-                        </>
-                      )}
-                    </select>
+                    <label className="form-label">Conversation Turns (Max: {maxTurns})</label>
+                    <input
+                      type="number"
+                      className="text-input"
+                      min={1}
+                      max={maxTurns}
+                      value={numTurns}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        setNumTurns(Number.isNaN(val) ? 1 : Math.min(maxTurns, Math.max(1, val)));
+                      }}
+                    />
                   </div>
                 </div>
-              )}
 
-              <div className="form-row" style={{ marginBottom: 16 }}>
-                <div className="form-group" style={{ flex: 1 }}>
-                  <label className="form-label">Transport Layer</label>
-                  <select
-                    className="select-input"
-                    value={selectedTransport}
-                    onChange={(e) => setSelectedTransport(e.target.value)}
-                  >
-                    {backendConfig?.transports?.map(t => (
-                      <option key={t} value={t}>{t}</option>
-                    )) || (
-                      <>
-                        <option value="direct-injection">direct-injection</option>
-                        <option value="webrtc-local">webrtc-local</option>
-                      </>
-                    )}
-                  </select>
-                </div>
-
-                <div className="form-group" style={{ flex: 1 }}>
-                  <label className="form-label">Conversation Turns</label>
-                  <input
-                    type="number"
-                    className="text-input"
-                    min={1}
-                    max={10}
-                    value={numTurns}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value, 10);
-                      setNumTurns(Number.isNaN(val) ? 1 : Math.min(10, Math.max(1, val)));
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}>
-                <button className="btn" type="button" onClick={() => setIsNewRunModalOpen(false)}>
-                  Cancel
-                </button>
-                {runningId || compareRunIds ? (
-                  <button 
-                    className="btn" 
-                    type="button"
-                    style={{ backgroundColor: '#ea4335', color: '#fff', border: 'none', fontWeight: 'bold' }}
-                    onClick={() => {
-                      handleStopRun();
-                      setIsNewRunModalOpen(false);
-                    }}
-                  >
-                    Stop Current Run
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}>
+                  <button className="btn" type="button" onClick={() => setIsNewRunModalOpen(false)}>
+                    Cancel
                   </button>
-                ) : (
-                  <button className="btn btn-primary" type="button" onClick={handleStartRun}>
-                    {runBothInParallel ? 'Start Parallel Run' : 'Start Run'}
-                  </button>
-                )}
+                  {runningId || compareRunIds ? (
+                    <button 
+                      className="btn" 
+                      type="button"
+                      style={{ backgroundColor: '#ea4335', color: '#fff', border: 'none', fontWeight: 'bold' }}
+                      onClick={() => {
+                        handleStopRun();
+                        setIsNewRunModalOpen(false);
+                      }}
+                    >
+                      Stop Current Run
+                    </button>
+                  ) : (
+                    <button className="btn btn-primary" type="button" onClick={handleStartRun}>
+                      {runBothInParallel ? 'Start Parallel Run' : 'Start Run'}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
