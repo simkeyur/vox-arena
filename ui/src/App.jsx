@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   Sun, Moon, Play, Pause, BarChart3, History, Settings, 
   Mic, CloudLightning, AudioLines, ClipboardCheck, ArrowRightLeft, 
   Trash2, CheckCircle2, XCircle, AlertCircle, ArrowLeft,
-  ChevronLeft, ChevronRight, LayoutDashboard, Plus
+  ChevronLeft, ChevronRight, LayoutDashboard, Plus, Cpu, MessageSquare, ShieldAlert, GitCompare
 } from 'lucide-react';
 import logoUrl from './assets/logo.png';
 import './App.css';
@@ -419,6 +419,26 @@ function App() {
   const [activeComparison, setActiveComparison] = useState(null);
   const [loadingComparison, setLoadingComparison] = useState(false);
 
+  // Modal for adding a new utterance
+  const [isAddUtteranceModalOpen, setIsAddUtteranceModalOpen] = useState(false);
+  const [newUtteranceId, setNewUtteranceId] = useState('');
+  const [newUtteranceText, setNewUtteranceText] = useState('');
+  const [newUtteranceExpectType, setNewUtteranceExpectType] = useState('none');
+  const [newUtterancePhrases, setNewUtterancePhrases] = useState('');
+  const [newUtteranceTool, setNewUtteranceTool] = useState('');
+  const [newUtteranceArgs, setNewUtteranceArgs] = useState('');
+
+  // Runs table search & sorting
+  const [runsSearchQuery, setRunsSearchQuery] = useState('');
+  const [runsSortField, setRunsSortField] = useState('created_at');
+  const [runsSortDirection, setRunsSortDirection] = useState('desc');
+
+  // Settings sub-tab navigation
+  const [settingsSubTab, setSettingsSubTab] = useState('models');
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [confirmModalConfig, setConfirmModalConfig] = useState(null);
+
+
   const selectedRunIdRef = useRef(null);
   const activeComparisonRef = useRef(null);
 
@@ -547,6 +567,12 @@ function App() {
       })
       .catch((err) => console.error('Error fetching utterances:', err));
   }, []);
+
+  useEffect(() => {
+    if (backendConfig?.active_template) {
+      setSelectedTemplateId(backendConfig.active_template);
+    }
+  }, [backendConfig]);
 
   const [runningId, setRunningId] = useState(null);
   const [runStatus, setRunStatus] = useState(null);
@@ -789,6 +815,13 @@ function App() {
         setSettingsGoogleApiKey(settingsData.google_api_key || '');
         setSettingsOpenaiApiKey(settingsData.openai_api_key || '');
 
+        if (settingsData.google_api_key === '••••••••') {
+          setGeminiVerifiedStatus({ success: true, message: 'Google Gemini API key verified (previously saved).' });
+        }
+        if (settingsData.openai_api_key === '••••••••') {
+          setOpenaiVerifiedStatus({ success: true, message: 'OpenAI API key verified (previously saved).' });
+        }
+
         const gModel = settingsData.gemini_model || '';
         if (gModel === '' || ['gemini-3.1-flash-live-preview', 'gemini-2.5-flash', 'gemini-2.5-flash-8b', 'gemini-2.0-flash-exp'].includes(gModel)) {
           setGeminiModelSelect(gModel || 'gemini-3.1-flash-live-preview');
@@ -821,6 +854,12 @@ function App() {
       .catch((err) => console.error('Error loading settings:', err));
   }, [activeTab, settingsLoaded]);
 
+  useEffect(() => {
+    if (backendConfig?.active_template) {
+      setSelectedTemplateId(backendConfig.active_template);
+    }
+  }, [backendConfig]);
+
   const handleSaveModelSettings = (provider) => {
     const isGemini = provider === 'gemini';
     const setMsg = isGemini ? setGeminiSaveMsg : setOpenaiSaveMsg;
@@ -845,6 +884,11 @@ function App() {
       })
       .then(() => {
         setMsg('Saved.');
+        if (provider === 'gemini') {
+          setGeminiVerifiedStatus({ success: true, message: 'Google Gemini API key saved & active.' });
+        } else {
+          setOpenaiVerifiedStatus({ success: true, message: 'OpenAI API key saved & active.' });
+        }
         fetch(`${backendUrl}/api/status`)
           .then((res) => res.json())
           .then((cfg) => setBackendConfig(cfg))
@@ -879,10 +923,19 @@ function App() {
   };
 
   const handleLoadTemplate = (templateId) => {
-    if (settingsUtterances.length > 0 && !window.confirm('Loading a template will overwrite your current scripted utterances. Continue?')) {
-      return;
+    if (settingsUtterances.length > 0) {
+      setConfirmModalConfig({
+        title: 'Overwrite scripted utterances?',
+        message: 'Loading a template will overwrite your current scripted test utterances. Are you sure you want to continue?',
+        isDanger: false,
+        onConfirm: () => executeLoadTemplate(templateId)
+      });
+    } else {
+      executeLoadTemplate(templateId);
     }
-    
+  };
+
+  const executeLoadTemplate = (templateId) => {
     setUtterancesSaveMsg('Loading template...');
     fetch(`${backendUrl}/api/templates/${templateId}/load`, {
       method: 'POST'
@@ -1012,10 +1065,15 @@ function App() {
   };
 
   const handleDeleteRun = (runId) => {
-    if (!window.confirm('Are you sure you want to permanently delete this experiment run?')) {
-      return;
-    }
-    
+    setConfirmModalConfig({
+      title: 'Delete Experiment Run?',
+      message: 'Are you sure you want to permanently delete this experiment run? This will delete all transcripts, metrics, and audio files from disk. This cannot be undone.',
+      isDanger: true,
+      onConfirm: () => executeDeleteRun(runId)
+    });
+  };
+
+  const executeDeleteRun = (runId) => {
     fetch(`${backendUrl}/api/runs/${runId}`, {
       method: 'DELETE'
     })
@@ -1039,11 +1097,62 @@ function App() {
       });
   };
 
-  const handleResetDatabase = () => {
-    if (!window.confirm('This will permanently delete ALL run history, transcripts, and audio from disk and reset the database. This cannot be undone. Continue?')) {
-      return;
+  const handleSortRuns = (field) => {
+    if (runsSortField === field) {
+      setRunsSortDirection(runsSortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setRunsSortField(field);
+      setRunsSortDirection(field === 'created_at' ? 'desc' : 'asc');
+    }
+  };
+
+  const filteredAndSortedRuns = useMemo(() => {
+    let result = [...runs];
+    if (runsSearchQuery.trim()) {
+      const q = runsSearchQuery.toLowerCase();
+      result = result.filter((run) => {
+        return (
+          (run.run_id && run.run_id.toLowerCase().includes(q)) ||
+          (run.provider && run.provider.toLowerCase().includes(q)) ||
+          (run.model && run.model.toLowerCase().includes(q)) ||
+          (run.transport && run.transport.toLowerCase().includes(q)) ||
+          (run.status && run.status.toLowerCase().includes(q))
+        );
+      });
     }
 
+    if (runsSortField) {
+      result.sort((a, b) => {
+        let valA = a[runsSortField];
+        let valB = b[runsSortField];
+
+        if (typeof valA === 'string') {
+          valA = valA.toLowerCase();
+          valB = (valB || '').toLowerCase();
+        } else if (valA == null) {
+          valA = 0;
+          valB = valB || 0;
+        }
+
+        if (valA < valB) return runsSortDirection === 'asc' ? -1 : 1;
+        if (valA > valB) return runsSortDirection === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return result;
+  }, [runs, runsSearchQuery, runsSortField, runsSortDirection]);
+
+  const handleResetDatabase = () => {
+    setConfirmModalConfig({
+      title: 'Reset All Data?',
+      message: 'This will permanently delete ALL run history, transcripts, and audio from disk and reset the SQLite database. This action cannot be undone. Continue?',
+      isDanger: true,
+      onConfirm: () => executeResetDatabase()
+    });
+  };
+
+  const executeResetDatabase = () => {
     setResetMsg('Resetting...');
     fetch(`${backendUrl}/api/database/reset`, { method: 'POST' })
       .then((res) => {
@@ -1105,7 +1214,7 @@ function App() {
           <div className="api-status">
             <span className={`status-dot ${backendStatus === 'connected' ? 'connected' : 'disconnected'}`}></span>
             <span style={{ color: 'var(--muted)', fontSize: 13 }}>
-              {backendStatus === 'connected' ? 'API connected' : 'API disconnected'}
+              {backendStatus === 'connected' ? 'System Online' : 'System Offline'}
             </span>
           </div>
           <button
@@ -1254,7 +1363,7 @@ function App() {
                 <div>
                   <div className="grid-3" style={{ marginBottom: 16 }}>
                     <div className="card">
-                      <div className="card-header"><span className="card-title">Latency Showdown (TTFA)</span></div>
+                      <div className="card-header"><span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><CloudLightning size={16} style={{ color: 'var(--color-primary)' }} />Latency Showdown (TTFA)</span></div>
                       <div className="card-body">
                         <CustomBarChart 
                           geminiValue={geminiStats?.avgTtfa} 
@@ -1268,7 +1377,7 @@ function App() {
                     </div>
 
                     <div className="card">
-                      <div className="card-header"><span className="card-title">Tool-Call Accuracy</span></div>
+                      <div className="card-header"><span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><ClipboardCheck size={16} style={{ color: 'var(--color-primary)' }} />Tool-Call Accuracy</span></div>
                       <div className="card-body">
                         <CustomBarChart 
                           geminiValue={geminiStats?.avgAccuracy} 
@@ -1282,7 +1391,7 @@ function App() {
                     </div>
 
                     <div className="card">
-                      <div className="card-header"><span className="card-title">Interruption Stop Latency</span></div>
+                      <div className="card-header"><span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><AudioLines size={16} style={{ color: 'var(--color-primary)' }} />Interruption Stop Latency</span></div>
                       <div className="card-body">
                         <CustomBarChart 
                           geminiValue={geminiStats?.avgInterruption} 
@@ -1298,7 +1407,7 @@ function App() {
 
                   <div className="grid-2" style={{ marginBottom: 16 }}>
                     <div className="card">
-                      <div className="card-header"><span className="card-title">Fact Hallucinations</span></div>
+                      <div className="card-header"><span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><AlertCircle size={16} style={{ color: 'var(--color-primary)' }} />Fact Hallucinations</span></div>
                       <div className="card-body">
                         <table className="runs-table" style={{ margin: 0 }}>
                           <thead>
@@ -1329,7 +1438,7 @@ function App() {
                     </div>
 
                     <div className="card">
-                      <div className="card-header"><span className="card-title">Recent Run Log</span></div>
+                      <div className="card-header"><span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><History size={16} style={{ color: 'var(--color-primary)' }} />Recent Run Log</span></div>
                       <div className="card-body" style={{ overflowY: 'auto', maxHeight: '180px', padding: 0 }}>
                         <table className="runs-table" style={{ margin: 0 }}>
                           <thead>
@@ -1499,20 +1608,18 @@ function App() {
                 return (
               <div className="card">
                 <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <button
-                      className="btn-icon"
-                      onClick={() => { window.location.hash = '#/runs'; }}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fg)', padding: 4, display: 'flex', alignItems: 'center' }}
-                      title="Back to Runs"
-                    >
-                      <ArrowLeft size={18} />
-                    </button>
-                    <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <ArrowRightLeft size={16} />
-                      Side-by-Side Run Comparison
-                    </span>
-                  </div>
+                  <button
+                    className="btn-icon"
+                    onClick={() => { window.location.hash = '#/runs'; }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--fg)', padding: 4, display: 'flex', alignItems: 'center' }}
+                    title="Back to Runs"
+                  >
+                    <ArrowLeft size={18} />
+                  </button>
+                  <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <GitCompare size={16} style={{ color: 'var(--color-primary)' }} />
+                    Side-by-Side Run Comparison
+                  </span>
                 </div>
                 <div className="card-body">
                   <div className="compare-split-view">
@@ -1578,7 +1685,8 @@ function App() {
                     >
                       <ArrowLeft size={18} />
                     </button>
-                    <span className="card-title" style={{ fontFamily: 'var(--font-mono)' }}>
+                    <span className="card-title" style={{ fontFamily: 'var(--font-mono)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <ClipboardCheck size={16} style={{ color: 'var(--color-primary)' }} />
                       INSPECT: {selectedRunId.slice(0, 12)}...
                     </span>
                   </div>
@@ -1601,7 +1709,7 @@ function App() {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: 24 }}>
                           <div className="card">
                             <div className="card-header">
-                              <span className="card-title">Live Pipeline Status</span>
+                              <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Play size={16} style={{ color: 'var(--color-primary)' }} />Live Pipeline Status</span>
                             </div>
                             <div className="card-body">
                               <LivePipelineVisualizer activeStep={getActivePipelineStep()} />
@@ -1610,7 +1718,7 @@ function App() {
                           
                           <div className="card">
                             <div className="card-header">
-                              <span className="card-title">Live Logs</span>
+                              <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><History size={16} style={{ color: 'var(--color-primary)' }} />Live Logs</span>
                             </div>
                             <div className="card-body" style={{ display: 'flex', flexDirection: 'column', height: '240px' }}>
                               <div className="terminal" style={{ flex: 1 }}>
@@ -1741,15 +1849,27 @@ function App() {
               // Run List Table
               <div className="card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--accent-light)' }}>
-                  <span className="card-title">Benchmark Runs</span>
-                  <div style={{ display: 'flex', gap: 12 }}>
-                    <button className="btn btn-primary" onClick={() => setIsNewRunModalOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <History size={16} style={{ color: 'var(--color-primary)' }} />
+                    Benchmark Runs
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <input
+                      type="text"
+                      className="text-input"
+                      value={runsSearchQuery}
+                      onChange={(e) => setRunsSearchQuery(e.target.value)}
+                      placeholder="Search runs..."
+                      style={{ width: 180, fontSize: 12, padding: '4px 8px', height: 28, margin: 0 }}
+                    />
+                    <button className="btn btn-primary" onClick={() => setIsNewRunModalOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, height: 28, padding: '4px 8px' }}>
                       <Plus size={14} /> New Run
                     </button>
                     {compareSelection.length === 2 && (
                       <button 
                         className="btn btn-primary"
                         onClick={() => { window.location.hash = `#/runs/compare/${compareSelection[0]}/${compareSelection[1]}`; }}
+                        style={{ fontSize: 12, height: 28, padding: '4px 8px' }}
                       >
                         Compare Selected ({compareSelection.length})
                       </button>
@@ -1761,24 +1881,71 @@ function App() {
                     <p style={{ color: 'var(--muted)', textAlign: 'center', padding: '40px 0' }}>
                       No runs found in the results folder.
                     </p>
+                  ) : filteredAndSortedRuns.length === 0 ? (
+                    <p style={{ color: 'var(--muted)', textAlign: 'center', padding: '40px 0' }}>
+                      No runs match your search query.
+                    </p>
                   ) : (
                     <table className="runs-table">
                       <thead>
                         <tr>
-                          <th style={{ width: 40, textAlign: 'center' }}>Compare</th>
-                          <th>Run ID</th>
-                          <th>Provider</th>
-                          <th>Model</th>
-                          <th>Transport</th>
-                          <th>Date</th>
-                          <th>Status</th>
+                          <th 
+                            onClick={() => handleSortRuns('run_id')} 
+                            style={{ cursor: 'pointer', userSelect: 'none' }}
+                          >
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              Run ID {runsSortField === 'run_id' && (runsSortDirection === 'asc' ? '▲' : '▼')}
+                            </div>
+                          </th>
+                          <th 
+                            onClick={() => handleSortRuns('provider')} 
+                            style={{ cursor: 'pointer', userSelect: 'none' }}
+                          >
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              Provider {runsSortField === 'provider' && (runsSortDirection === 'asc' ? '▲' : '▼')}
+                            </div>
+                          </th>
+                          <th 
+                            onClick={() => handleSortRuns('model')} 
+                            style={{ cursor: 'pointer', userSelect: 'none' }}
+                          >
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              Model {runsSortField === 'model' && (runsSortDirection === 'asc' ? '▲' : '▼')}
+                            </div>
+                          </th>
+                          <th 
+                            onClick={() => handleSortRuns('transport')} 
+                            style={{ cursor: 'pointer', userSelect: 'none' }}
+                          >
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              Transport {runsSortField === 'transport' && (runsSortDirection === 'asc' ? '▲' : '▼')}
+                            </div>
+                          </th>
+                          <th 
+                            onClick={() => handleSortRuns('created_at')} 
+                            style={{ cursor: 'pointer', userSelect: 'none' }}
+                          >
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              Date {runsSortField === 'created_at' && (runsSortDirection === 'asc' ? '▲' : '▼')}
+                            </div>
+                          </th>
+                          <th 
+                            onClick={() => handleSortRuns('status')} 
+                            style={{ cursor: 'pointer', userSelect: 'none' }}
+                          >
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              Status {runsSortField === 'status' && (runsSortDirection === 'asc' ? '▲' : '▼')}
+                            </div>
+                          </th>
+                          <th style={{ width: 80, textAlign: 'center' }}>Compare</th>
                           <th>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {runs.map((run) => {
+                        {filteredAndSortedRuns.map((run) => {
                           const isSelected = compareSelection.includes(run.run_id);
-                          const toggleSelection = (e) => {
+                          const toggleSelection = () => {
+                            if (run.status !== 'completed') return;
                             if (isSelected) {
                               setCompareSelection(compareSelection.filter(id => id !== run.run_id));
                             } else {
@@ -1790,16 +1957,22 @@ function App() {
                             }
                           };
 
+                          const handleRowClick = (e) => {
+                            if (e.target.closest('button') || e.target.closest('a') || e.target.closest('input')) {
+                              return;
+                            }
+                            toggleSelection();
+                          };
+
                           return (
-                            <tr key={run.run_id}>
-                              <td style={{ textAlign: 'center' }}>
-                                <input 
-                                  type="checkbox" 
-                                  checked={isSelected}
-                                  onChange={toggleSelection}
-                                  disabled={run.status !== 'completed'}
-                                />
-                              </td>
+                            <tr 
+                              key={run.run_id}
+                              onClick={handleRowClick}
+                              style={{ 
+                                cursor: run.status === 'completed' ? 'pointer' : 'default',
+                                opacity: run.status === 'completed' ? 1 : 0.85
+                              }}
+                            >
                               <td><code>{run.run_id.slice(0, 12)}</code></td>
                               <td>{run.provider.toUpperCase()}</td>
                               <td>{run.model}</td>
@@ -1810,7 +1983,16 @@ function App() {
                                   {run.status}
                                 </span>
                               </td>
-                              <td>
+                              <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                                <input 
+                                  type="checkbox" 
+                                  className="modern-checkbox"
+                                  checked={isSelected}
+                                  onChange={toggleSelection}
+                                  disabled={run.status !== 'completed'}
+                                />
+                              </td>
+                              <td onClick={(e) => e.stopPropagation()}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                                   <button 
                                     className="btn" 
@@ -1846,6 +2028,78 @@ function App() {
 
         {activeTab === 'settings' && (
           <div className="scrollable-tab-container">
+            {/* Horizontal Settings Tabs */}
+            <div style={{ display: 'flex', gap: 24, borderBottom: '1px solid var(--border)', marginBottom: 20, paddingBottom: 8 }}>
+              <button
+                type="button"
+                onClick={() => setSettingsSubTab('models')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: settingsSubTab === 'models' ? 'var(--fg)' : 'var(--muted)',
+                  fontWeight: settingsSubTab === 'models' ? '600' : '500',
+                  paddingBottom: 8,
+                  position: 'relative',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8
+                }}
+              >
+                <Cpu size={16} />
+                Model Configuration
+                {settingsSubTab === 'models' && (
+                  <div style={{ position: 'absolute', bottom: -9, left: 0, right: 0, height: 2, backgroundColor: 'var(--fg)' }} />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSettingsSubTab('utterances')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: settingsSubTab === 'utterances' ? 'var(--fg)' : 'var(--muted)',
+                  fontWeight: settingsSubTab === 'utterances' ? '600' : '500',
+                  paddingBottom: 8,
+                  position: 'relative',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8
+                }}
+              >
+                <MessageSquare size={16} />
+                Utterance Management
+                {settingsSubTab === 'utterances' && (
+                  <div style={{ position: 'absolute', bottom: -9, left: 0, right: 0, height: 2, backgroundColor: 'var(--fg)' }} />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSettingsSubTab('danger')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: settingsSubTab === 'danger' ? 'var(--fg)' : 'var(--muted)',
+                  fontWeight: settingsSubTab === 'danger' ? '600' : '500',
+                  paddingBottom: 8,
+                  position: 'relative',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8
+                }}
+              >
+                <ShieldAlert size={16} />
+                Danger Zone
+                {settingsSubTab === 'danger' && (
+                  <div style={{ position: 'absolute', bottom: -9, left: 0, right: 0, height: 2, backgroundColor: 'var(--fg)' }} />
+                )}
+              </button>
+            </div>
             {/* Local Storage Security Banner */}
             <div className="setup-banner" style={{ 
               marginBottom: 16, 
@@ -1866,462 +2120,533 @@ function App() {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 24 }}>
-              {/* Google Gemini Settings */}
-              <div className="card" style={{ margin: 0 }}>
-                <div className="card-header">
-                  <span className="card-title">Google Gemini Configuration</span>
-                </div>
-                <div className="card-body">
-                  <div className="form-group" style={{ marginBottom: 12 }}>
-                    <label className="form-label">Google Gemini API Key</label>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <input
-                        type="password"
-                        className="text-input"
-                        value={settingsGoogleApiKey}
-                        onChange={(e) => {
-                          setSettingsGoogleApiKey(e.target.value);
-                          setGeminiVerifiedStatus(null);
-                        }}
-                        placeholder={settingsGoogleApiKey ? "••••••••" : "Enter Google API Key"}
-                        style={{ flex: 1 }}
-                      />
-                      <button 
-                        type="button" 
-                        className="btn" 
-                        onClick={() => handleVerifyKey('gemini')}
-                        disabled={verifyingProvider === 'gemini'}
-                        style={{ fontSize: 12, padding: '4px 12px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}
-                      >
-                        {verifyingProvider === 'gemini' ? 'Verifying...' : 'Verify'}
-                      </button>
-                    </div>
-                    {geminiVerifiedStatus && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 12, color: geminiVerifiedStatus.success ? 'var(--success)' : 'var(--error)', textAlign: 'left' }}>
-                        {geminiVerifiedStatus.success ? (
-                          <>
-                            <CheckCircle2 size={14} style={{ color: 'var(--success)', flexShrink: 0 }} />
-                            <span>{geminiVerifiedStatus.message}</span>
-                          </>
-                        ) : (
-                          <>
-                            <XCircle size={14} style={{ color: 'var(--error)', flexShrink: 0 }} />
-                            <span>{geminiVerifiedStatus.message}</span>
-                          </>
-                        )}
-                      </div>
-                    )}
+            {settingsSubTab === 'models' && (
+              <>
+                {/* Model Configuration Table */}
+                <div className="card" style={{ margin: 0 }}>
+                  <div className="card-header">
+                    <span className="card-title">Model Configurations</span>
                   </div>
+                  <div className="card-body" style={{ padding: 0 }}>
+                    <table className="runs-table" style={{ margin: 0 }}>
+                      <thead>
+                        <tr>
+                          <th style={{ width: '160px' }}>Provider</th>
+                          <th>API Key Configuration</th>
+                          <th style={{ width: '320px' }}>Active Model</th>
+                          <th style={{ width: '130px', textAlign: 'center' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {/* Google Gemini Row */}
+                        <tr>
+                          <td style={{ verticalAlign: 'top', fontWeight: '600', padding: '16px 12px' }}>
+                            GOOGLE GEMINI
+                          </td>
+                          <td style={{ verticalAlign: 'top', padding: '16px 12px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                <input
+                                  type="password"
+                                  className="text-input"
+                                  value={settingsGoogleApiKey}
+                                  onChange={(e) => {
+                                    setSettingsGoogleApiKey(e.target.value);
+                                    setGeminiVerifiedStatus(null);
+                                  }}
+                                  placeholder={settingsGoogleApiKey ? "••••••••" : "Enter Google API Key"}
+                                  style={{ flex: 1, height: 32, fontSize: 13, padding: '4px 10px' }}
+                                />
+                                <button 
+                                  type="button" 
+                                  className="btn" 
+                                  onClick={() => handleVerifyKey('gemini')}
+                                  disabled={verifyingProvider === 'gemini'}
+                                  style={{ fontSize: 12, padding: '4px 12px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4, height: 32 }}
+                                >
+                                  {verifyingProvider === 'gemini' ? 'Verifying...' : 'Verify'}
+                                </button>
+                              </div>
+                              {geminiVerifiedStatus && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: geminiVerifiedStatus.success ? 'var(--success)' : 'var(--error)' }}>
+                                  {geminiVerifiedStatus.success ? (
+                                    <CheckCircle2 size={14} style={{ color: 'var(--success)', flexShrink: 0 }} />
+                                  ) : (
+                                    <XCircle size={14} style={{ color: 'var(--error)', flexShrink: 0 }} />
+                                  )}
+                                  <span>{geminiVerifiedStatus.message}</span>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ verticalAlign: 'top', padding: '16px 12px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                              <select
+                                  className="select-input"
+                                  value={geminiModelSelect}
+                                  onChange={(e) => setGeminiModelSelect(e.target.value)}
+                                  style={{ height: 32, fontSize: 13, padding: '4px 10px' }}
+                                >
+                                  <option value="gemini-3.1-flash-live-preview">Gemini 3.1 Flash Live Preview (Default)</option>
+                                  <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                                  <option value="gemini-2.5-flash-8b">Gemini 2.5 Flash 8B</option>
+                                  <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Exp</option>
+                                  <option value="custom">Custom Model...</option>
+                                </select>
+                                {geminiModelSelect === 'custom' && (
+                                  <input
+                                    type="text"
+                                    className="text-input"
+                                    value={geminiModelCustom}
+                                    onChange={(e) => setGeminiModelCustom(e.target.value)}
+                                    placeholder="Custom Model ID (e.g. gemini-3.1-flash)"
+                                    style={{ height: 32, fontSize: 13, padding: '4px 10px' }}
+                                  />
+                                )}
+                            </div>
+                          </td>
+                          <td style={{ verticalAlign: 'top', textAlign: 'center', padding: '16px 12px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                              <button 
+                                className="btn btn-primary" 
+                                onClick={() => handleSaveModelSettings('gemini')}
+                                style={{ fontSize: 12, padding: '4px 12px', height: 32, width: '70px' }}
+                              >
+                                Save
+                              </button>
+                              {geminiSaveMsg && (
+                                <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block' }}>
+                                  {geminiSaveMsg}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
 
-                  <div className="form-group" style={{ marginBottom: 12 }}>
-                    <label className="form-label">Gemini Model</label>
-                    <select
-                      className="select-input"
-                      value={geminiModelSelect}
-                      onChange={(e) => setGeminiModelSelect(e.target.value)}
-                    >
-                      <option value="gemini-3.1-flash-live-preview">Gemini 3.1 Flash Live Preview (Default)</option>
-                      <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                      <option value="gemini-2.5-flash-8b">Gemini 2.5 Flash 8B</option>
-                      <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Exp</option>
-                      <option value="custom">Custom Model...</option>
-                    </select>
-                  </div>
-
-                  {geminiModelSelect === 'custom' && (
-                    <div className="form-group" style={{ marginBottom: 12 }}>
-                      <label className="form-label">Custom Gemini Model ID</label>
-                      <input
-                        type="text"
-                        className="text-input"
-                        value={geminiModelCustom}
-                        onChange={(e) => setGeminiModelCustom(e.target.value)}
-                        placeholder="e.g. gemini-3.1-flash-live-preview"
-                      />
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
-                    <button className="btn btn-primary" onClick={() => handleSaveModelSettings('gemini')}>
-                      Save Gemini Settings
-                    </button>
-                    {geminiSaveMsg && <span style={{ fontSize: 13, color: 'var(--muted)' }}>{geminiSaveMsg}</span>}
-                  </div>
-                </div>
-              </div>
-
-              {/* OpenAI Settings */}
-              <div className="card" style={{ margin: 0 }}>
-                <div className="card-header">
-                  <span className="card-title">OpenAI Configuration</span>
-                </div>
-                <div className="card-body">
-                  <div className="form-group" style={{ marginBottom: 12 }}>
-                    <label className="form-label">OpenAI API Key</label>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <input
-                        type="password"
-                        className="text-input"
-                        value={settingsOpenaiApiKey}
-                        onChange={(e) => {
-                          setSettingsOpenaiApiKey(e.target.value);
-                          setOpenaiVerifiedStatus(null);
-                        }}
-                        placeholder={settingsOpenaiApiKey ? "••••••••" : "Enter OpenAI API Key"}
-                        style={{ flex: 1 }}
-                      />
-                      <button 
-                        type="button" 
-                        className="btn" 
-                        onClick={() => handleVerifyKey('openai')}
-                        disabled={verifyingProvider === 'openai'}
-                        style={{ fontSize: 12, padding: '4px 12px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}
-                      >
-                        {verifyingProvider === 'openai' ? 'Verifying...' : 'Verify'}
-                      </button>
-                    </div>
-                    {openaiVerifiedStatus && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 12, color: openaiVerifiedStatus.success ? 'var(--success)' : 'var(--error)', textAlign: 'left' }}>
-                        {openaiVerifiedStatus.success ? (
-                          <>
-                            <CheckCircle2 size={14} style={{ color: 'var(--success)', flexShrink: 0 }} />
-                            <span>{openaiVerifiedStatus.message}</span>
-                          </>
-                        ) : (
-                          <>
-                            <XCircle size={14} style={{ color: 'var(--error)', flexShrink: 0 }} />
-                            <span>{openaiVerifiedStatus.message}</span>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="form-group" style={{ marginBottom: 12 }}>
-                    <label className="form-label">OpenAI Model</label>
-                    <select
-                      className="select-input"
-                      value={openaiModelSelect}
-                      onChange={(e) => setOpenaiModelSelect(e.target.value)}
-                    >
-                      <option value="gpt-realtime-2">GPT Realtime 2 (Default)</option>
-                      <option value="gpt-4o-realtime-preview">GPT-4o Realtime Preview</option>
-                      <option value="gpt-4o-mini-realtime-preview">GPT-4o mini Realtime Preview</option>
-                      <option value="custom">Custom Model...</option>
-                    </select>
-                  </div>
-
-                  {openaiModelSelect === 'custom' && (
-                    <div className="form-group" style={{ marginBottom: 12 }}>
-                      <label className="form-label">Custom OpenAI Model ID</label>
-                      <input
-                        type="text"
-                        className="text-input"
-                        value={openaiModelCustom}
-                        onChange={(e) => setOpenaiModelCustom(e.target.value)}
-                        placeholder="e.g. gpt-realtime-2"
-                      />
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
-                    <button className="btn btn-primary" onClick={() => handleSaveModelSettings('openai')}>
-                      Save OpenAI Settings
-                    </button>
-                    {openaiSaveMsg && <span style={{ fontSize: 13, color: 'var(--muted)' }}>{openaiSaveMsg}</span>}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Interactive Utterances List Editor */}
-            <div className="card" style={{ marginTop: 24 }}>
-              <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="card-title">Scripted Test Utterances ({settingsUtterances.length})</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  {templates.length > 0 && (
-                    <select
-                      className="select-input"
-                      value=""
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val) handleLoadTemplate(val);
-                      }}
-                      style={{ fontSize: 12, height: 28, padding: '2px 8px', width: 180, margin: 0 }}
-                    >
-                      <option value="" disabled>Load Template...</option>
-                      {templates.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name} ({t.turns_count} turns)
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  <button 
-                    className="btn btn-primary" 
-                    onClick={() => {
-                      const nextIndex = settingsUtterances.length;
-                      const nextId = `u${String(nextIndex + 1).padStart(2, '0')}`;
-                      setSettingsUtterances([...settingsUtterances, { id: nextId, text: '' }]);
-                      setRawArgsState((prev) => ({ ...prev, [nextIndex]: '' }));
-                    }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', fontSize: 12, height: 28 }}
-                  >
-                    <Plus size={14} /> Add Utterance
-                  </button>
-                </div>
-              </div>
-              <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {settingsUtterances.length === 0 ? (
-                  <div className="onboarding-container" style={{
-                    padding: '30px 20px',
-                    textAlign: 'center',
-                    background: 'rgba(255, 255, 255, 0.01)',
-                    borderRadius: 12,
-                    border: '1px dashed var(--border)',
-                    margin: '10px 0'
-                  }}>
-                    <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: 'var(--fg)' }}>
-                      Get Started with a Benchmarking Template
-                    </h3>
-                    <p style={{ color: 'var(--muted)', fontSize: 13, maxWidth: 500, margin: '0 auto 24px auto', lineHeight: 1.5 }}>
-                      Select one of the built-in benchmark usecases to populate your test utterances, or start with a blank list.
-                    </p>
-                    
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-                      gap: 16,
-                      marginBottom: 24,
-                      textAlign: 'left'
-                    }}>
-                      {templates.map((t) => (
-                        <div key={t.id} className="glass-card" style={{
-                          padding: 16,
-                          borderRadius: 10,
-                          border: '1px solid var(--border)',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          justifyContent: 'space-between',
-                          background: 'rgba(255, 255, 255, 0.02)',
-                          transition: 'transform 0.2s, box-shadow 0.2s',
-                          cursor: 'pointer'
-                        }}
-                        onClick={() => handleLoadTemplate(t.id)}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.transform = 'translateY(-2px)';
-                          e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.2)';
-                          e.currentTarget.style.borderColor = 'var(--color-primary)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.transform = 'none';
-                          e.currentTarget.style.boxShadow = 'none';
-                          e.currentTarget.style.borderColor = 'var(--border)';
-                        }}
-                        >
-                          <div>
-                            <h4 style={{ fontSize: 14, fontWeight: 700, marginBottom: 6, color: 'var(--fg)' }}>{t.name}</h4>
-                            <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.4, marginBottom: 12 }}>{t.description}</p>
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto', paddingTop: 8, borderTop: '1px dashed var(--border)' }}>
-                            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-primary)' }}>{t.turns_count} Turns</span>
-                            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                              Load Usecase <ChevronRight size={12} />
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'center', gap: 16 }}>
-                      <button 
-                        className="btn" 
-                        onClick={() => {
-                          setSettingsUtterances([{ id: 'u01', text: '' }]);
-                          setRawArgsState({ 0: '' });
-                        }}
-                        style={{ fontSize: 12 }}
-                      >
-                        Start Blank Usecase
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  settingsUtterances.map((u, idx) => {
-                    // Order matters: tool > phrases (response_contains) > legacy response
-                    const expectType = u.expect?.tool
-                      ? 'tool'
-                      : Array.isArray(u.expect?.response_contains)
-                        ? 'phrases'
-                        : u.expect?.response
-                          ? 'phrases'  // migrate legacy {response: "x"} into the phrases editor
-                          : 'none';
-                    
-                    return (
-                      <div key={idx} className="utterance-edit-row" style={{
-                        padding: 10,
-                        border: '1px solid var(--border)',
-                        borderRadius: 8,
-                        backgroundColor: 'rgba(255, 255, 255, 0.02)',
-                        position: 'relative'
-                      }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Turn #{idx + 1}</span>
-                            <input
-                              type="text"
-                              className="text-input"
-                              value={u.id}
-                              onChange={(e) => updateUtteranceField(idx, 'id', e.target.value)}
-                              style={{ width: 60, padding: '2px 4px', fontSize: 11, fontWeight: 'bold', fontFamily: 'var(--font-mono)' }}
-                              placeholder="ID"
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const updated = settingsUtterances.filter((_, i) => i !== idx);
-                              setSettingsUtterances(updated);
-                              const nextRawArgs = {};
-                              updated.forEach((item, i) => {
-                                const oldIdx = i >= idx ? i + 1 : i;
-                                nextRawArgs[i] = rawArgsState[oldIdx] || '';
-                              });
-                              setRawArgsState(nextRawArgs);
-                            }}
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              color: 'var(--error)',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              padding: 4
-                            }}
-                            title="Delete Utterance"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          <div className="form-group" style={{ margin: 0 }}>
-                            <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Prompt text</label>
-                            <input
-                              type="text"
-                              className="text-input"
-                              value={u.text}
-                              onChange={(e) => updateUtteranceField(idx, 'text', e.target.value)}
-                              placeholder="Enter the phrase user should say..."
-                              style={{ fontSize: 12, padding: '4px 8px' }}
-                            />
-                          </div>
-
-                          <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 2fr', gap: 8, alignItems: 'end' }}>
-                            <div className="form-group" style={{ margin: 0 }}>
-                              <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Expectation validation</label>
+                        {/* OpenAI Row */}
+                        <tr>
+                          <td style={{ verticalAlign: 'top', fontWeight: '600', padding: '16px 12px' }}>
+                            OPENAI
+                          </td>
+                          <td style={{ verticalAlign: 'top', padding: '16px 12px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                <input
+                                  type="password"
+                                  className="text-input"
+                                  value={settingsOpenaiApiKey}
+                                  onChange={(e) => {
+                                    setSettingsOpenaiApiKey(e.target.value);
+                                    setOpenaiVerifiedStatus(null);
+                                  }}
+                                  placeholder={settingsOpenaiApiKey ? "••••••••" : "Enter OpenAI API Key"}
+                                  style={{ flex: 1, height: 32, fontSize: 13, padding: '4px 10px' }}
+                                />
+                                <button 
+                                  type="button" 
+                                  className="btn" 
+                                  onClick={() => handleVerifyKey('openai')}
+                                  disabled={verifyingProvider === 'openai'}
+                                  style={{ fontSize: 12, padding: '4px 12px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4, height: 32 }}
+                                >
+                                  {verifyingProvider === 'openai' ? 'Verifying...' : 'Verify'}
+                                </button>
+                              </div>
+                              {openaiVerifiedStatus && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: openaiVerifiedStatus.success ? 'var(--success)' : 'var(--error)' }}>
+                                  {openaiVerifiedStatus.success ? (
+                                    <CheckCircle2 size={14} style={{ color: 'var(--success)', flexShrink: 0 }} />
+                                  ) : (
+                                    <XCircle size={14} style={{ color: 'var(--error)', flexShrink: 0 }} />
+                                  )}
+                                  <span>{openaiVerifiedStatus.message}</span>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ verticalAlign: 'top', padding: '16px 12px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                               <select
                                 className="select-input"
-                                value={expectType}
-                                onChange={(e) => updateUtteranceExpectType(idx, e.target.value)}
-                                style={{ fontSize: 11, padding: '3px 6px', height: 26 }}
+                                value={openaiModelSelect}
+                                onChange={(e) => setOpenaiModelSelect(e.target.value)}
+                                style={{ height: 32, fontSize: 13, padding: '4px 10px' }}
                               >
-                                <option value="none">None (No check)</option>
-                                <option value="phrases">Response contains (any of)</option>
-                                <option value="tool">Expected Tool Call</option>
+                                <option value="gpt-realtime-2">GPT Realtime 2 (Default)</option>
+                                <option value="gpt-4o-realtime-preview">GPT-4o Realtime Preview</option>
+                                <option value="gpt-4o-mini-realtime-preview">GPT-4o mini Realtime Preview</option>
+                                <option value="custom">Custom Model...</option>
                               </select>
-                            </div>
-
-                            {expectType === 'phrases' && (
-                              <div className="form-group" style={{ margin: 0 }}>
-                                <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>
-                                  Phrases the response must contain (comma-separated)
-                                </label>
+                              {openaiModelSelect === 'custom' && (
                                 <input
                                   type="text"
                                   className="text-input"
-                                  value={(Array.isArray(u.expect?.response_contains)
-                                    ? u.expect.response_contains
-                                    : (u.expect?.response ? [u.expect.response] : [])
-                                  ).join(', ')}
-                                  onChange={(e) => {
-                                    const phrases = e.target.value
-                                      .split(',')
-                                      .map((p) => p.trim())
-                                      .filter((p) => p.length > 0);
-                                    const updated = [...settingsUtterances];
-                                    const current = updated[idx];
-                                    // Wipe legacy `response` if present; canonical field is response_contains.
-                                    const { response: _legacy, ...restExpect } = current.expect || {};
-                                    updated[idx] = { ...current, expect: { ...restExpect, response_contains: phrases } };
-                                    setSettingsUtterances(updated);
-                                  }}
-                                  placeholder="verify, identity"
-                                  style={{ fontSize: 12, padding: '3px 6px', height: 26 }}
+                                  value={openaiModelCustom}
+                                  onChange={(e) => setOpenaiModelCustom(e.target.value)}
+                                  placeholder="Custom Model ID (e.g. gpt-realtime-2)"
+                                  style={{ height: 32, fontSize: 13, padding: '4px 10px' }}
                                 />
-                              </div>
-                            )}
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ verticalAlign: 'top', textAlign: 'center', padding: '16px 12px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                              <button 
+                                className="btn btn-primary" 
+                                onClick={() => handleSaveModelSettings('openai')}
+                                style={{ fontSize: 12, padding: '4px 12px', height: 32, width: '70px' }}
+                              >
+                                Save
+                              </button>
+                              {openaiSaveMsg && (
+                                <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block' }}>
+                                  {openaiSaveMsg}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
 
-                            {expectType === 'tool' && (
-                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                                <div className="form-group" style={{ margin: 0 }}>
-                                  <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Expected tool name</label>
-                                  <input
-                                    type="text"
-                                    className="text-input"
-                                    value={u.expect?.tool || ''}
-                                    onChange={(e) => updateUtteranceExpectField(idx, 'tool', e.target.value)}
-                                    placeholder="e.g. get_hours"
-                                    style={{ fontSize: 12, padding: '3px 6px', height: 26 }}
-                                  />
-                                </div>
-                                <div className="form-group" style={{ margin: 0 }}>
-                                  <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Expected arguments (JSON)</label>
-                                  <input
-                                    type="text"
-                                    className="text-input"
-                                    value={rawArgsState[idx] || ''}
-                                    onChange={(e) => handleArgsChange(idx, e.target.value)}
-                                    placeholder='e.g. {"guests": 2}'
-                                    style={{ fontSize: 11, fontFamily: 'var(--font-mono)', padding: '3px 6px', height: 26 }}
-                                  />
-                                </div>
-                              </div>
-                            )}
+            {settingsSubTab === 'utterances' && (
+              <div className="card" style={{ margin: 0 }}>
+                <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span className="card-title">Scripted Test Utterances ({settingsUtterances.length})</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    {templates.length > 0 && (
+                      <select
+                        className="select-input"
+                        value={selectedTemplateId || ""}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val) handleLoadTemplate(val);
+                        }}
+                        style={{ fontSize: 12, height: 28, padding: '2px 8px', width: 180, margin: 0 }}
+                      >
+                        <option value="" disabled>Load Template...</option>
+                        {selectedTemplateId === 'custom' && (
+                          <option value="custom" disabled>Custom Usecase</option>
+                        )}
+                        {templates.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name} ({t.turns_count} turns)
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <button 
+                      className="btn btn-primary" 
+                      onClick={() => {
+                        const nextIndex = settingsUtterances.length;
+                        const nextId = `u${String(nextIndex + 1).padStart(2, '0')}`;
+                        setNewUtteranceId(nextId);
+                        setNewUtteranceText('');
+                        setNewUtteranceExpectType('none');
+                        setNewUtterancePhrases('');
+                        setNewUtteranceTool('');
+                        setNewUtteranceArgs('');
+                        setIsAddUtteranceModalOpen(true);
+                      }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', fontSize: 12, height: 28 }}
+                    >
+                      <Plus size={14} /> Add Utterance
+                    </button>
+                    <button
+                      className="btn btn-primary"
+                      onClick={handleSaveUtterances}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', fontSize: 12, height: 28 }}
+                    >
+                      Save Utterances
+                    </button>
+                    {utterancesSaveMsg && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{utterancesSaveMsg}</span>}
+                  </div>
+                </div>
+                <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {settingsUtterances.length === 0 ? (
+                    <div className="onboarding-container" style={{
+                      padding: '30px 20px',
+                      textAlign: 'center',
+                      background: 'rgba(255, 255, 255, 0.01)',
+                      borderRadius: 12,
+                      border: '1px dashed var(--border)',
+                      margin: '10px 0'
+                    }}>
+                      <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: 'var(--fg)' }}>
+                        Get Started with a Benchmarking Template
+                      </h3>
+                      <p style={{ color: 'var(--muted)', fontSize: 13, maxWidth: 500, margin: '0 auto 24px auto', lineHeight: 1.5 }}>
+                        Select one of the built-in benchmark usecases to populate your test utterances, or start with a blank list.
+                      </p>
+                      
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                        gap: 16,
+                        marginBottom: 24,
+                        textAlign: 'left'
+                      }}>
+                        {templates.map((t) => (
+                          <div key={t.id} className="glass-card" style={{
+                            padding: 16,
+                            borderRadius: 10,
+                            border: '1px solid var(--border)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                            background: 'rgba(255, 255, 255, 0.02)',
+                            transition: 'transform 0.2s, box-shadow 0.2s',
+                            cursor: 'pointer'
+                          }}
+                          onClick={() => handleLoadTemplate(t.id)}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-2px)';
+                            e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.2)';
+                            e.currentTarget.style.borderColor = 'var(--color-primary)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'none';
+                            e.currentTarget.style.boxShadow = 'none';
+                            e.currentTarget.style.borderColor = 'var(--border)';
+                          }}
+                          >
+                            <div>
+                              <h4 style={{ fontSize: 14, fontWeight: 700, marginBottom: 6, color: 'var(--fg)' }}>{t.name}</h4>
+                              <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.4, marginBottom: 12 }}>{t.description}</p>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'auto', paddingTop: 8, borderTop: '1px dashed var(--border)' }}>
+                              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-primary)' }}>{t.turns_count} Turns</span>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--fg)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                Load Usecase <ChevronRight size={12} />
+                              </span>
+                            </div>
                           </div>
-                        </div>
+                        ))}
                       </div>
-                    );
-                  })
-                )}
-                
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 }}>
-                  <button className="btn btn-primary" onClick={handleSaveUtterances}>
-                    Save Utterances
-                  </button>
-                  {utterancesSaveMsg && <span style={{ fontSize: 13, color: 'var(--muted)' }}>{utterancesSaveMsg}</span>}
-                </div>
-              </div>
-            </div>
 
-            {/* Danger Zone */}
-            <div className="card danger-zone" style={{ marginTop: 24 }}>
-              <div className="card-header">
-                <span className="card-title" style={{ color: 'var(--error)' }}>Danger Zone</span>
-              </div>
-              <div className="card-body">
-                <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
-                  Permanently delete all run history, transcripts, and audio files, and reset the database to a clean state. This cannot be undone.
-                </p>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <button className="btn btn-danger" onClick={handleResetDatabase}>
-                    Reset All Data
-                  </button>
-                  {resetMsg && <span style={{ fontSize: 13, color: 'var(--muted)' }}>{resetMsg}</span>}
+                      <div style={{ display: 'flex', justifyContent: 'center', gap: 16 }}>
+                        <button 
+                          className="btn" 
+                          onClick={() => {
+                            setSettingsUtterances([{ id: 'u01', text: '' }]);
+                            setRawArgsState({ 0: '' });
+                          }}
+                          style={{ fontSize: 12 }}
+                        >
+                          Start Blank Usecase
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ position: 'relative', paddingLeft: '32px', display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '8px' }}>
+                      {/* Vertical Connecting Line */}
+                      <div style={{
+                        position: 'absolute',
+                        left: '11px',
+                        top: '12px',
+                        bottom: '12px',
+                        width: '2px',
+                        backgroundColor: 'var(--border)'
+                      }} />
+
+                      {settingsUtterances.map((u, idx) => {
+                        // Order matters: tool > phrases (response_contains) > legacy response
+                        const expectType = u.expect?.tool
+                          ? 'tool'
+                          : Array.isArray(u.expect?.response_contains)
+                            ? 'phrases'
+                            : u.expect?.response
+                              ? 'phrases'  // migrate legacy {response: "x"} into the phrases editor
+                              : 'none';
+                        
+                        return (
+                          <div key={idx} style={{ position: 'relative' }}>
+                            {/* Chained node circle indicator */}
+                            <div style={{
+                              position: 'absolute',
+                              left: '-32px',
+                              top: '10px',
+                              width: '24px',
+                              height: '24px',
+                              borderRadius: '50%',
+                              backgroundColor: 'var(--bg)',
+                              border: '2px solid var(--color-primary)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              zIndex: 2,
+                              boxShadow: '0 0 8px rgba(99, 102, 241, 0.2)'
+                            }}>
+                              <span style={{ fontSize: '10px', fontWeight: 'bold', color: 'var(--color-primary)' }}>
+                                {idx + 1}
+                              </span>
+                            </div>
+
+                            {/* Card Content Row */}
+                            <div className="utterance-edit-row" style={{
+                              padding: 10,
+                              border: '1px solid var(--border)',
+                              borderRadius: 8,
+                              backgroundColor: 'rgba(255, 255, 255, 0.02)',
+                              position: 'relative'
+                            }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Turn #{idx + 1}</span>
+                                  <input
+                                    type="text"
+                                    className="text-input"
+                                    value={u.id}
+                                    onChange={(e) => updateUtteranceField(idx, 'id', e.target.value)}
+                                    style={{ width: 60, padding: '2px 4px', fontSize: 11, fontWeight: 'bold', fontFamily: 'var(--font-mono)' }}
+                                    placeholder="ID"
+                                  />
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const updated = settingsUtterances.filter((_, i) => i !== idx);
+                                    setSettingsUtterances(updated);
+                                    const nextRawArgs = {};
+                                    updated.forEach((item, i) => {
+                                      const oldIdx = i >= idx ? i + 1 : i;
+                                      nextRawArgs[i] = rawArgsState[oldIdx] || '';
+                                    });
+                                    setRawArgsState(nextRawArgs);
+                                  }}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: 'var(--error)',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    padding: 4
+                                  }}
+                                  title="Delete Utterance"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <div className="form-group" style={{ margin: 0 }}>
+                                  <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Prompt text</label>
+                                  <input
+                                    type="text"
+                                    className="text-input"
+                                    value={u.text}
+                                    onChange={(e) => updateUtteranceField(idx, 'text', e.target.value)}
+                                    placeholder="Enter the phrase user should say..."
+                                    style={{ fontSize: 12, padding: '4px 8px' }}
+                                  />
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 2fr', gap: 8, alignItems: 'end' }}>
+                                  <div className="form-group" style={{ margin: 0 }}>
+                                    <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Expectation validation</label>
+                                    <select
+                                      className="select-input"
+                                      value={expectType}
+                                      onChange={(e) => updateUtteranceExpectType(idx, e.target.value)}
+                                      style={{ fontSize: 11, padding: '3px 6px', height: 26 }}
+                                    >
+                                      <option value="none">None (No check)</option>
+                                      <option value="phrases">Response contains (any of)</option>
+                                      <option value="tool">Expected Tool Call</option>
+                                    </select>
+                                  </div>
+
+                                  {expectType === 'phrases' && (
+                                    <div className="form-group" style={{ margin: 0 }}>
+                                      <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>
+                                        Phrases the response must contain (comma-separated)
+                                      </label>
+                                      <input
+                                        type="text"
+                                        className="text-input"
+                                        value={(Array.isArray(u.expect?.response_contains)
+                                          ? u.expect.response_contains
+                                          : (u.expect?.response ? [u.expect.response] : [])
+                                        ).join(', ')}
+                                        onChange={(e) => {
+                                          const phrases = e.target.value
+                                            .split(',')
+                                            .map((p) => p.trim())
+                                            .filter((p) => p.length > 0);
+                                          const updated = [...settingsUtterances];
+                                          const current = updated[idx];
+                                          // Wipe legacy `response` if present; canonical field is response_contains.
+                                          const { response: _legacy, ...restExpect } = current.expect || {};
+                                          updated[idx] = { ...current, expect: { ...restExpect, response_contains: phrases } };
+                                          setSettingsUtterances(updated);
+                                        }}
+                                        placeholder="verify, identity"
+                                        style={{ fontSize: 12, padding: '3px 6px', height: 26 }}
+                                      />
+                                    </div>
+                                  )}
+
+                                  {expectType === 'tool' && (
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                                      <div className="form-group" style={{ margin: 0 }}>
+                                        <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Expected tool name</label>
+                                        <input
+                                          type="text"
+                                          className="text-input"
+                                          value={u.expect?.tool || ''}
+                                          onChange={(e) => updateUtteranceExpectField(idx, 'tool', e.target.value)}
+                                          placeholder="e.g. get_hours"
+                                          style={{ fontSize: 12, padding: '3px 6px', height: 26 }}
+                                        />
+                                      </div>
+                                      <div className="form-group" style={{ margin: 0 }}>
+                                        <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Expected arguments (JSON)</label>
+                                        <input
+                                          type="text"
+                                          className="text-input"
+                                          value={rawArgsState[idx] || ''}
+                                          onChange={(e) => handleArgsChange(idx, e.target.value)}
+                                          placeholder='e.g. {"guests": 2}'
+                                          style={{ fontSize: 11, fontFamily: 'var(--font-mono)', padding: '3px 6px', height: 26 }}
+                                        />
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
+            )}
+
+            {settingsSubTab === 'danger' && (
+              <div className="card danger-zone" style={{ margin: 0 }}>
+                <div className="card-header">
+                  <span className="card-title" style={{ color: 'var(--error)' }}>Danger Zone</span>
+                </div>
+                <div className="card-body">
+                  <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
+                    Permanently delete all run history, transcripts, and audio files, and reset the database to a clean state. This cannot be undone.
+                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <button className="btn btn-danger" onClick={handleResetDatabase}>
+                      Reset All Data
+                    </button>
+                    {resetMsg && <span style={{ fontSize: 13, color: 'var(--muted)' }}>{resetMsg}</span>}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -2497,6 +2822,183 @@ function App() {
           </div>
         );
       })()}
+
+      {isAddUtteranceModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsAddUtteranceModalOpen(false)}>
+          <div className="modal-content-card glass-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">Add New Test Utterance</span>
+              <button className="modal-close-btn" onClick={() => setIsAddUtteranceModalOpen(false)}>&times;</button>
+            </div>
+            <div className="modal-body" style={{ color: 'var(--fg)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: 12 }}>
+                <div className="form-group">
+                  <label className="form-label">Turn ID</label>
+                  <input
+                    type="text"
+                    className="text-input"
+                    value={newUtteranceId}
+                    onChange={(e) => setNewUtteranceId(e.target.value)}
+                    style={{ fontWeight: 'bold', fontFamily: 'var(--font-mono)' }}
+                    placeholder="ID"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Prompt Text</label>
+                  <input
+                    type="text"
+                    className="text-input"
+                    value={newUtteranceText}
+                    onChange={(e) => setNewUtteranceText(e.target.value)}
+                    placeholder="Enter the phrase the user should say..."
+                    autoFocus
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Expectation Validation</label>
+                <select
+                  className="select-input"
+                  value={newUtteranceExpectType}
+                  onChange={(e) => setNewUtteranceExpectType(e.target.value)}
+                >
+                  <option value="none">None (No check)</option>
+                  <option value="phrases">Response contains (any of)</option>
+                  <option value="tool">Expected Tool Call</option>
+                </select>
+              </div>
+
+              {newUtteranceExpectType === 'phrases' && (
+                <div className="form-group">
+                  <label className="form-label">
+                    Phrases the response must contain (comma-separated)
+                  </label>
+                  <input
+                    type="text"
+                    className="text-input"
+                    value={newUtterancePhrases}
+                    onChange={(e) => setNewUtterancePhrases(e.target.value)}
+                    placeholder="e.g. verify, identity"
+                  />
+                </div>
+              )}
+
+              {newUtteranceExpectType === 'tool' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div className="form-group">
+                    <label className="form-label">Expected Tool Name</label>
+                    <input
+                      type="text"
+                      className="text-input"
+                      value={newUtteranceTool}
+                      onChange={(e) => setNewUtteranceTool(e.target.value)}
+                      placeholder="e.g. get_hours"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Expected Arguments (JSON)</label>
+                    <input
+                      type="text"
+                      className="text-input"
+                      value={newUtteranceArgs}
+                      onChange={(e) => setNewUtteranceArgs(e.target.value)}
+                      placeholder='e.g. {"guests": 2}'
+                      style={{ fontFamily: 'var(--font-mono)' }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 12 }}>
+                <button className="btn" type="button" onClick={() => setIsAddUtteranceModalOpen(false)}>
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  onClick={() => {
+                    if (!newUtteranceId.trim()) {
+                      alert('Please provide a Turn ID.');
+                      return;
+                    }
+                    if (!newUtteranceText.trim()) {
+                      alert('Please provide prompt text.');
+                      return;
+                    }
+
+                    const newUtt = {
+                      id: newUtteranceId.trim(),
+                      text: newUtteranceText.trim(),
+                    };
+
+                    if (newUtteranceExpectType === 'phrases') {
+                      const phrases = newUtterancePhrases
+                        .split(',')
+                        .map((p) => p.trim())
+                        .filter((p) => p.length > 0);
+                      newUtt.expect = { response_contains: phrases };
+                    } else if (newUtteranceExpectType === 'tool') {
+                      let parsedArgs = {};
+                      if (newUtteranceArgs.trim()) {
+                        try {
+                          parsedArgs = JSON.parse(newUtteranceArgs);
+                        } catch (e) {
+                          alert('Invalid JSON in expected arguments. Please correct it or leave it empty.');
+                          return;
+                        }
+                      }
+                      newUtt.expect = {
+                        tool: newUtteranceTool.trim(),
+                        args: parsedArgs,
+                      };
+                    }
+
+                    const nextIndex = settingsUtterances.length;
+                    setSettingsUtterances([...settingsUtterances, newUtt]);
+                    setRawArgsState((prev) => ({ ...prev, [nextIndex]: newUtteranceArgs }));
+                    setIsAddUtteranceModalOpen(false);
+                  }}
+                >
+                  Add Utterance
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {confirmModalConfig && (
+        <div className="modal-overlay" onClick={() => setConfirmModalConfig(null)}>
+          <div className="modal-content-card glass-card" style={{ maxWidth: 450 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">{confirmModalConfig.title}</span>
+              <button className="modal-close-btn" onClick={() => setConfirmModalConfig(null)}>&times;</button>
+            </div>
+            <div className="modal-body" style={{ color: 'var(--fg)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.5, margin: 0 }}>
+                {confirmModalConfig.message}
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 12 }}>
+                <button className="btn" type="button" onClick={() => setConfirmModalConfig(null)}>
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  onClick={() => {
+                    confirmModalConfig.onConfirm();
+                    setConfirmModalConfig(null);
+                  }}
+                  style={confirmModalConfig.isDanger ? { backgroundColor: 'var(--error)', borderColor: 'var(--error)', color: '#fff' } : {}}
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
