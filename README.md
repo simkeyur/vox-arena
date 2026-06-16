@@ -224,11 +224,11 @@ The harness plays `script/audio/{id}.wav` into the pipeline and scores the agent
 ## Configuration
 
 All settings can be edited from:
-- **UI:** Settings → Models → "Advanced: Evaluation & TTS"
+- **UI:** Settings → Model Configuration → (API Keys / Evaluation Config / TTS Config tabs)
 - **CLI:** `voxarena config list | get KEY | set KEY VALUE`
 - **`.env` file** in your workdir (loaded on startup)
 
-Values from environment variables win over the SQLite settings table, which wins over the in-code defaults below.
+Precedence: **environment variables** > **SQLite settings table** > **in-code defaults**.
 
 ### Provider models (realtime voice agents)
 
@@ -238,25 +238,25 @@ Values from environment variables win over the SQLite settings table, which wins
 | `GEMINI_MODEL` | `gemini-3.1-flash-live-preview` | Gemini Live model under test |
 | `OPENAI_MODEL` | `gpt-realtime-2` | OpenAI Realtime model under test |
 
-### Evaluation models (LLM-judge reviewer)
+### Evaluation model (LLM-judge reviewer)
 
-Cheaper text-only models used after a run to score tool-call correctness and hallucinations. Independent from the live voice agent.
+A single, cheaper text-only model used after a run to score tool-call correctness and hallucinations. Independent from the live voice agent.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `GEMINI_EVAL_MODEL` | `gemini-3.1-flash-lite` | Gemini judge model |
-| `OPENAI_EVAL_MODEL` | `gpt-5.4-mini` | OpenAI judge model |
+| `EVALUATION_PROVIDER` | `gemini` | Which provider's API to use for judging. `gemini` or `openai`. |
+| `EVALUATION_MODEL` | `gemini-3.1-flash-lite` | The model to call. Must match the chosen provider (e.g. `gpt-4o-mini` for openai). |
 
 ### TTS engine (utterance audio synthesis)
 
-Each scripted utterance is rendered into a WAV before being injected into the voice agent. The engine is chosen at run time; `auto` walks a fallback chain so you don't have to pre-configure anything.
+Each scripted utterance is rendered into a WAV before being injected into the voice agent. The engine is chosen at run time.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `TTS_ENGINE` | `auto` | One of `auto`, `openai`, `google`, `local`. `auto` chain (local-first): **local OS → OpenAI → Google**. So a fresh install with no API keys still works out of the box on macOS / Linux (with `espeak-ng`) / Windows. An explicit choice tries that engine first; if it isn't configured/available, the rest of the chain runs. |
-| `OPENAI_TTS_MODEL` | `tts-1` | Any OpenAI TTS model (`tts-1`, `tts-1-hd`, `gpt-4o-mini-tts`, …). |
+| `TTS_ENGINE` | `local` | One of `local`, `auto`, `openai`, `google`. `local` uses the host OS speech synthesis (no API keys needed). `auto` walks a fallback chain: **local → OpenAI → Google**. |
+| `OPENAI_TTS_MODEL` | `tts-1` | Any OpenAI TTS model (`tts-1`, `tts-1-hd`, `gpt-4o-mini-tts`, …). Only used when engine is `openai` or `auto`. |
 | `OPENAI_TTS_VOICE` | `nova` | Any OpenAI voice (`nova`, `alloy`, `echo`, `fable`, `onyx`, `shimmer`). |
-| `GOOGLE_TTS_VOICE` | `en-US-Journey-F` | Any Google Cloud TTS voice name. |
+| `GOOGLE_TTS_VOICE` | `en-US-Journey-F` | Any Google Cloud TTS voice name. Only used when engine is `google` or `auto`. |
 
 **Local OS engine** (no API keys needed):
 - **macOS** — built-in `say` command. Available out of the box.
@@ -278,15 +278,21 @@ Cache entries are signed by `engine+voice`, so switching between, say, `nova` an
 # Inspect everything
 voxarena config list
 
-# Force the local OS TTS so runs work offline
+# Use the local OS TTS (default — no API keys needed)
 voxarena config set TTS_ENGINE local
 
-# Try the higher-quality OpenAI voice
+# Switch to OpenAI TTS with a higher-quality voice
+voxarena config set TTS_ENGINE openai
 voxarena config set OPENAI_TTS_MODEL tts-1-hd
 voxarena config set OPENAI_TTS_VOICE shimmer
 
-# Swap in a different evaluator model
-voxarena config set GEMINI_EVAL_MODEL gemini-2.5-flash
+# Switch evaluation judge to OpenAI GPT-4o-mini
+voxarena config set EVALUATION_PROVIDER openai
+voxarena config set EVALUATION_MODEL gpt-4o-mini
+
+# Use a different Gemini judge model
+voxarena config set EVALUATION_PROVIDER gemini
+voxarena config set EVALUATION_MODEL gemini-2.5-flash
 ```
 
 ## Contributing

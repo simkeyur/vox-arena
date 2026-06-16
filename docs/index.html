@@ -1070,6 +1070,7 @@
 
     <div class="nav-section">Reference</div>
     <a href="#script" class="nav-link" data-nav><svg><use href="#i-file"/></svg>Script format</a>
+    <a href="#config" class="nav-link" data-nav><svg><use href="#i-settings"/></svg>Configuration</a>
     <a href="#metrics" class="nav-link" data-nav><svg><use href="#i-bar-chart"/></svg>Metrics</a>
     <a href="#builder" class="nav-link" data-nav><svg><use href="#i-wrench"/></svg>Command builder</a>
     <a href="#extend" class="nav-link" data-nav><svg><use href="#i-puzzle"/></svg>Custom adapter</a>
@@ -1571,6 +1572,101 @@ jobs:
   &lt;/testsuite&gt;
 &lt;/testsuites&gt;</code></pre>
       </div>
+    </section>
+
+    <section id="config">
+      <h2><svg class="anchor-icon"><use href="#i-settings"/></svg>Configuration</h2>
+      <p>
+        All VoxArena settings can be managed via three different surfaces. Values resolve in this
+        order: <strong>environment variable</strong> &gt; <strong>SQLite settings table</strong> (set
+        via UI or <code>voxarena config set</code>) &gt; <strong>in-code default</strong>.
+      </p>
+
+      <div class="callout">
+        <svg><use href="#i-link"/></svg>
+        <div class="callout-body">
+          <strong>UI:</strong> Open <code>voxarena ui</code> and navigate to
+          <strong>Settings &rarr; Model Configuration</strong>. Three tabs let you manage
+          API Keys, Evaluation Config, and TTS Config independently.
+        </div>
+      </div>
+
+      <h3>Provider models</h3>
+      <p>Realtime live-capable models used for the actual benchmark session.</p>
+      <div class="grid">
+        <div class="card">
+          <h3 style="margin-top:0"><code>GOOGLE_API_KEY</code> / <code>OPENAI_API_KEY</code></h3>
+          <p>Provider credentials. Set via UI or <code>.env</code> file.</p>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0"><code>GEMINI_MODEL</code></h3>
+          <p>Gemini Live model under test. Default: <code>gemini-3.1-flash-live-preview</code>.</p>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0"><code>OPENAI_MODEL</code></h3>
+          <p>OpenAI Realtime model under test. Default: <code>gpt-realtime-2</code>.</p>
+        </div>
+      </div>
+
+      <h3>Evaluation judge</h3>
+      <p>A single, cheaper text-only model used after each run to score tool-call correctness
+      and hallucinations. Completely independent from the live voice agent model.</p>
+      <pre>
+        <div class="pre-header">
+          <span class="filename"><svg><use href="#i-file"/></svg>.env</span>
+          <button class="copy-pre" data-copy>Copy</button>
+        </div><code># Which provider to call for LLM-graded scoring
+# Options: gemini | openai
+EVALUATION_PROVIDER=gemini
+
+# The judge model — must match the chosen provider
+# Gemini examples: gemini-3.1-flash-lite, gemini-2.5-flash
+# OpenAI examples: gpt-4o-mini, gpt-4o
+EVALUATION_MODEL=gemini-3.1-flash-lite</code></pre>
+
+      <h3>TTS engine</h3>
+      <p>Controls how scripted utterances are synthesised into WAV files before injection.
+      The default is <code>local</code> — no API keys required.</p>
+      <pre>
+        <div class="pre-header">
+          <span class="filename"><svg><use href="#i-file"/></svg>.env</span>
+          <button class="copy-pre" data-copy>Copy</button>
+        </div><code># Options: local | auto | openai | google
+# local  — built-in OS TTS (say on macOS, espeak-ng on Linux, PowerShell on Windows)
+# auto   — fallback chain: local → openai → google
+# openai — OpenAI TTS API (requires OPENAI_API_KEY)
+# google — Google Cloud TTS (requires GOOGLE_API_KEY)
+TTS_ENGINE=local
+
+# OpenAI TTS settings (only used when TTS_ENGINE=openai or auto)
+OPENAI_TTS_MODEL=tts-1
+OPENAI_TTS_VOICE=nova
+
+# Google TTS settings (only used when TTS_ENGINE=google or auto)
+GOOGLE_TTS_VOICE=en-US-Journey-F</code></pre>
+
+      <h3>CLI config commands</h3>
+      <pre>
+        <div class="pre-header">
+          <span class="filename"><svg><use href="#i-terminal"/></svg>shell</span>
+          <button class="copy-pre" data-copy>Copy</button>
+        </div><code># List all current settings
+voxarena config list
+
+# Use local OS TTS (default, no keys needed)
+voxarena config set TTS_ENGINE local
+
+# Switch to OpenAI TTS
+voxarena config set TTS_ENGINE openai
+voxarena config set OPENAI_TTS_VOICE shimmer
+
+# Change evaluation judge to OpenAI GPT-4o-mini
+voxarena config set EVALUATION_PROVIDER openai
+voxarena config set EVALUATION_MODEL gpt-4o-mini
+
+# Use a faster Gemini judge
+voxarena config set EVALUATION_PROVIDER gemini
+voxarena config set EVALUATION_MODEL gemini-2.5-flash</code></pre>
     </section>
 
     <section id="script">
