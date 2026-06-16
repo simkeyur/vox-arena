@@ -78,11 +78,36 @@ export default function RunsTab({ ctx }) {
   );
 }
 
+function responseScore(turns) {
+  const scored = (turns || []).filter(t => t.response_match !== null && t.response_match !== undefined);
+  if (!scored.length) return null;
+  return scored.filter(t => t.response_match).length / scored.length;
+}
+
+function EvalNotes({ notes }) {
+  if (!notes) return '—';
+  const isLLM = notes.includes('[LLM]');
+  const text = notes.replace('[LLM]', '').trim();
+  return (
+    <span>
+      {isLLM && (
+        <span style={{ fontSize: 9, fontWeight: 700, background: 'var(--color-primary)', color: '#fff', borderRadius: 4, padding: '1px 5px', marginRight: 5, letterSpacing: 0.4 }}>
+          LLM
+        </span>
+      )}
+      {text}
+    </span>
+  );
+}
+
 function ComparisonView({ activeComparison, compareRunIds, logs, logsEndRef }) {
   const r1 = activeComparison.run1;
   const r2 = activeComparison.run2;
   const m1 = r1.metrics || {};
   const m2 = r2.metrics || {};
+
+  const rs1 = responseScore(r1.turns);
+  const rs2 = responseScore(r2.turns);
 
   const ttfaWinner = (m1.average_ttfa_ms != null && m2.average_ttfa_ms != null)
     ? (m1.average_ttfa_ms < m2.average_ttfa_ms ? r1.run_id : (m2.average_ttfa_ms < m1.average_ttfa_ms ? r2.run_id : null))
@@ -96,12 +121,15 @@ function ComparisonView({ activeComparison, compareRunIds, logs, logsEndRef }) {
   const costWinner = (m1.total_cost_usd != null && m2.total_cost_usd != null)
     ? (m1.total_cost_usd < m2.total_cost_usd ? r1.run_id : (m2.total_cost_usd < m1.total_cost_usd ? r2.run_id : null))
     : null;
+  const respWinner = (rs1 != null && rs2 != null)
+    ? (rs1 > rs2 ? r1.run_id : (rs2 > rs1 ? r2.run_id : null))
+    : null;
 
   const ttfaDelta = (m1.average_ttfa_ms != null && m2.average_ttfa_ms != null)
     ? Math.abs(m1.average_ttfa_ms - m2.average_ttfa_ms).toFixed(0)
     : null;
 
-  const winners = { ttfa: ttfaWinner, acc: accWinner, hall: hallWinner, cost: costWinner, ttfaDelta };
+  const winners = { ttfa: ttfaWinner, acc: accWinner, hall: hallWinner, cost: costWinner, resp: respWinner, ttfaDelta };
   const showLiveLogs = !!compareRunIds || r1.status === 'running' || r2.status === 'running';
 
   return (
@@ -169,11 +197,18 @@ function ComparisonView({ activeComparison, compareRunIds, logs, logsEndRef }) {
   );
 }
 
-function Metric({ label, value, isWinner, tone, delta }) {
+function Metric({ label, value, isWinner, tone, delta, badge }) {
   const color = tone === 'error' ? 'var(--error)' : (isWinner ? 'var(--fg)' : 'var(--muted)');
   return (
     <div>
-      <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
+      <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.4, display: 'flex', alignItems: 'center', gap: 4 }}>
+        {label}
+        {badge && (
+          <span style={{ fontSize: 8, fontWeight: 700, background: 'var(--color-primary)', color: '#fff', borderRadius: 3, padding: '0 4px', letterSpacing: 0.3 }}>
+            {badge}
+          </span>
+        )}
+      </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
         <span style={{ fontWeight: isWinner ? 700 : 500, fontSize: 16, fontFamily: 'var(--font-mono)', color }}>
           {value}
@@ -192,6 +227,8 @@ function SummaryCard({ run, winners }) {
   const isAccW = winners.acc === run.run_id;
   const isHallW = winners.hall === run.run_id;
   const isCostW = winners.cost === run.run_id;
+  const isRespW = winners.resp === run.run_id;
+  const myRs = responseScore(run.turns);
   return (
     <div className="comparison-card">
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
@@ -201,7 +238,7 @@ function SummaryCard({ run, winners }) {
         <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--muted)' }}>{run.model}</span>
       </div>
       <div style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{run.run_id}</div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 10 }}>
         <Metric
           label="Avg TTFA"
           value={m.average_ttfa_ms != null ? `${m.average_ttfa_ms.toFixed(0)} ms` : '—'}
@@ -212,6 +249,12 @@ function SummaryCard({ run, winners }) {
           label="Tool Accuracy"
           value={m.tool_call_accuracy_rate != null ? `${(m.tool_call_accuracy_rate * 100).toFixed(0)}%` : '—'}
           isWinner={isAccW}
+        />
+        <Metric
+          label="Response Score"
+          value={myRs != null ? `${(myRs * 100).toFixed(0)}%` : '—'}
+          isWinner={isRespW}
+          badge="LLM"
         />
         <Metric
           label="Hallucinations"
@@ -259,7 +302,7 @@ function TurnCell({ run, turn }) {
       )}
       {turn.evaluation_notes && (
         <div style={{ fontSize: 11, color: 'var(--muted)', background: 'rgba(0,0,0,0.05)', padding: '6px 10px', borderRadius: 6, marginTop: 6 }}>
-          {turn.evaluation_notes}
+          <EvalNotes notes={turn.evaluation_notes} />
         </div>
       )}
     </div>
@@ -357,6 +400,20 @@ function RunInspector({ selectedRunId, selectedRunData, runningId, logs, logsEnd
                 </div>
               </div>
               <div>
+                <div className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  Response Score
+                  <span style={{ fontSize: 8, fontWeight: 700, background: 'var(--color-primary)', color: '#fff', borderRadius: 3, padding: '0 4px', letterSpacing: 0.3 }}>
+                    LLM
+                  </span>
+                </div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600 }}>
+                  {(() => {
+                    const rs = responseScore(selectedRunData.turns);
+                    return rs != null ? `${(rs * 100).toFixed(0)}%` : '--';
+                  })()}
+                </div>
+              </div>
+              <div>
                 <div className="form-label">Hallucinations</div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600, color: selectedRunData.metrics?.hallucination_count > 0 ? 'var(--error)' : 'inherit' }}>
                   {selectedRunData.metrics?.hallucination_count ?? 0}
@@ -402,6 +459,12 @@ function RunInspector({ selectedRunId, selectedRunData, runningId, logs, logsEnd
                     <th>Int Stop</th>
                     <th>Tool Called</th>
                     <th>Tool Eval</th>
+                    <th style={{ whiteSpace: 'nowrap' }}>
+                      Response{' '}
+                      <span style={{ fontSize: 8, fontWeight: 700, background: 'var(--color-primary)', color: '#fff', borderRadius: 3, padding: '0 4px', letterSpacing: 0.3, verticalAlign: 'middle' }}>
+                        LLM
+                      </span>
+                    </th>
                     <th>Audio</th>
                     <th>Notes</th>
                     <th>Result</th>
@@ -436,6 +499,13 @@ function RunInspector({ selectedRunId, selectedRunData, runningId, logs, logsEnd
                             </span>
                           ) : '—'}
                         </td>
+                        <td>
+                          {turn.response_match !== null && turn.response_match !== undefined ? (
+                            <span className={`status-badge ${turn.response_match ? 'completed' : 'failed'}`}>
+                              {turn.response_match ? 'MATCH' : 'MISS'}
+                            </span>
+                          ) : '—'}
+                        </td>
                         <td style={{ minWidth: 160 }}>
                           {turn.audio_output_path ? (
                             <AudioPlayer
@@ -445,7 +515,7 @@ function RunInspector({ selectedRunId, selectedRunData, runningId, logs, logsEnd
                           ) : '—'}
                         </td>
                         <td style={{ maxWidth: 240, fontSize: 12, color: 'var(--muted)' }}>
-                          {turn.evaluation_notes || '—'}
+                          <EvalNotes notes={turn.evaluation_notes} />
                         </td>
                         <td>
                           {turnPending ? (
