@@ -168,15 +168,21 @@ def execute_tool(name: str, arguments: Dict[str, Any], template_id: Optional[str
         if template_id == "custom":
             template_id = get_setting("LAST_LOADED_TEMPLATE") or "restaurant"
 
-    if template_id == "telecom":
-        from voxarena.templates import mock_execute_telecom
-        return mock_execute_telecom(name, arguments)
-    elif template_id == "smarthome":
+    if template_id == "smarthome":
         from voxarena.templates import mock_execute_smarthome
         return mock_execute_smarthome(name, arguments)
     elif template_id == "finance":
         from voxarena.templates import mock_execute_finance
         return mock_execute_finance(name, arguments)
+    elif template_id == "flight":
+        from voxarena.templates import mock_execute_flight
+        return mock_execute_flight(name, arguments)
+    elif template_id == "healthcare":
+        from voxarena.templates import mock_execute_healthcare
+        return mock_execute_healthcare(name, arguments)
+    elif template_id == "ecommerce":
+        from voxarena.templates import mock_execute_ecommerce
+        return mock_execute_ecommerce(name, arguments)
 
     if name in TOOL_FUNCTION_MAP:
         try:

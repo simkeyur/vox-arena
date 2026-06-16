@@ -3,13 +3,13 @@
 TEMPLATES = {
     "restaurant": {
         "id": "restaurant",
-        "name": "Restaurant Reservation (Saffron Leaf)",
-        "description": "Book a table for dinner, check parking details, and verify opening hours at Saffron Leaf.",
-        "system_prompt": "You are a friendly and helpful virtual reservation assistant for Saffron Leaf restaurant. Your goal is to help customers book tables, answer questions about our opening hours, weekend schedule, parking details, and standard menus. You have access to tools: get_hours, lookup_menu, and check_reservation_availability. Ensure you get required parameters before calling reservations.",
+        "name": "Restaurant Reservation",
+        "description": "Book a table for dinner, check parking details, and verify opening hours.",
+        "system_prompt": "You are a friendly and helpful virtual reservation assistant for a restaurant. Your goal is to help customers book tables, answer questions about our opening hours, weekend schedule, parking details, and standard menus. You have access to tools: get_hours, lookup_menu, and check_reservation_availability. Ensure you get required parameters before calling reservations.",
         "tools": [
             {
                 "name": "lookup_menu",
-                "description": "Retrieve the Saffron Leaf menu items for a specific category.",
+                "description": "Retrieve the menu items for a specific category.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -93,99 +93,6 @@ TEMPLATES = {
                 "id": "u05",
                 "text": "Thank you, that's all I need. See you tomorrow!",
                 "expect": {"response_contains": ["welcome", "thank"]}
-            }
-        ]
-    },
-    "telecom": {
-        "id": "telecom",
-        "name": "Telecom Customer Support",
-        "description": "Verify account details, inquire about a high bill charge, and change subscription to unlimited.",
-        "system_prompt": "You are a customer support agent for Telco Connect. Assist the customer (Alex) with billing verification and changing their subscription plan. STRICT SECURITY RULE: Before discussing any account details, billing charges, or making adjustments, you MUST verify the customer's identity by calling `verify_identity` with their phone number and PIN. Once verified, you can disclose bill charges and switch them to an unlimited plan. Disputed charges up to $50 can be waived.",
-        "tools": [
-            {
-                "name": "verify_identity",
-                "description": "Verify customer's identity using phone number and security PIN.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "phone_number": {"type": "string", "description": "10-digit customer phone number"},
-                        "pin": {"type": "string", "description": "4-digit security PIN code"}
-                    },
-                    "required": ["phone_number", "pin"]
-                }
-            },
-            {
-                "name": "get_billing_details",
-                "description": "Retrieve current billing charges for verified customer.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "phone_number": {"type": "string", "description": "Customer phone number"}
-                    },
-                    "required": ["phone_number"]
-                }
-            },
-            {
-                "name": "change_plan",
-                "description": "Change customer's subscription plan to unlimited.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "phone_number": {"type": "string", "description": "Customer phone number"},
-                        "plan_name": {"type": "string", "description": "Name of the new plan (e.g. unlimited)"}
-                    },
-                    "required": ["phone_number", "plan_name"]
-                }
-            },
-            {
-                "name": "waive_disputed_charge",
-                "description": "Waive a disputed billing charge on the customer account.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "phone_number": {"type": "string", "description": "Customer phone number"},
-                        "amount": {"type": "number", "description": "Amount to waive"}
-                    },
-                    "required": ["phone_number", "amount"]
-                }
-            }
-        ],
-        "utterances": [
-            {
-                "id": "u01",
-                "text": "Hello, I received my bill today and it's much higher than usual.",
-                # Security rule: agent must NOT discuss billing before identity verification.
-                # Should ask for phone + PIN.
-                "expect": {"response_contains": ["verify", "identity"]}
-            },
-            {
-                "id": "u02",
-                "text": "My phone number is 555-0199, and the name is Alex.",
-                # Still missing PIN — agent should ask for it, not call verify_identity yet.
-                "expect": {"response_contains": ["pin"]}
-            },
-            {
-                "id": "u03",
-                "text": "My security code is 4321. There is an extra charge of fifty dollars.",
-                "expect": {
-                    "tool": "verify_identity",
-                    "args": {"phone_number": "555-0199", "pin": "4321"},
-                    "response_contains": ["verified"]
-                }
-            },
-            {
-                "id": "u04",
-                "text": "Could you please waive this fee and switch me to an unlimited plan?",
-                "expect": {
-                    "tool": "change_plan",
-                    "args": {"phone_number": "555-0199", "plan_name": "unlimited"},
-                    "response_contains": ["unlimited"]
-                }
-            },
-            {
-                "id": "u05",
-                "text": "Great, thank you for sorting this out so quickly.",
-                "expect": {"response_contains": ["welcome", "anything else"]}
             }
         ]
     },
@@ -322,6 +229,247 @@ TEMPLATES = {
             }
         ]
     },
+    "flight": {
+        "id": "flight",
+        "name": "Flight Check-in",
+        "description": "Look up a flight status, select a seat, and add a checked bag before departure.",
+        "system_prompt": "You are a helpful airline check-in assistant. Help passengers look up their flight status, choose seats, and manage baggage. Always confirm the flight number before calling any tools.",
+        "tools": [
+            {
+                "name": "get_flight_status",
+                "description": "Look up real-time status and gate information for a flight.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "flight_number": {"type": "string", "description": "Flight number (e.g. AA204)"},
+                        "date": {"type": "string", "description": "Travel date in YYYY-MM-DD format"}
+                    },
+                    "required": ["flight_number", "date"]
+                }
+            },
+            {
+                "name": "select_seat",
+                "description": "Reserve a specific seat for a passenger on a flight.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "flight_number": {"type": "string", "description": "Flight number"},
+                        "seat": {"type": "string", "description": "Seat number (e.g. 14A)"},
+                        "passenger_name": {"type": "string", "description": "Full name of the passenger"}
+                    },
+                    "required": ["flight_number", "seat", "passenger_name"]
+                }
+            },
+            {
+                "name": "add_checked_bag",
+                "description": "Add a checked baggage allowance to a booking.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "flight_number": {"type": "string", "description": "Flight number"},
+                        "bag_count": {"type": "integer", "description": "Number of checked bags to add"}
+                    },
+                    "required": ["flight_number", "bag_count"]
+                }
+            }
+        ],
+        "utterances": [
+            {
+                "id": "u01",
+                "text": "Hi, I'm flying on AA204 tomorrow and want to check if it's on time.",
+                "expect": {
+                    "tool": "get_flight_status",
+                    "args": {"flight_number": "AA204"},
+                    "response_contains": ["gate", "on time"]
+                }
+            },
+            {
+                "id": "u02",
+                "text": "Great, can I pick seat 14A? My name is Jordan Smith.",
+                "expect": {
+                    "tool": "select_seat",
+                    "args": {"flight_number": "AA204", "seat": "14A", "passenger_name": "Jordan Smith"},
+                    "response_contains": ["14A", "confirmed"]
+                }
+            },
+            {
+                "id": "u03",
+                "text": "I also need to add one checked bag to my booking.",
+                "expect": {
+                    "tool": "add_checked_bag",
+                    "args": {"flight_number": "AA204", "bag_count": 1},
+                    "response_contains": ["bag", "added"]
+                }
+            },
+            {
+                "id": "u04",
+                "text": "Perfect, that's everything. Thank you!",
+                "expect": {"response_contains": ["welcome", "safe"]}
+            }
+        ]
+    },
+    "healthcare": {
+        "id": "healthcare",
+        "name": "Healthcare Appointment",
+        "description": "Check doctor availability, book an appointment, and request a prescription refill.",
+        "system_prompt": "You are a virtual healthcare scheduling assistant. Help patients check doctor availability, book or reschedule appointments, and request prescription refills. Always confirm the patient's date of birth before accessing their records.",
+        "tools": [
+            {
+                "name": "check_doctor_availability",
+                "description": "Check available appointment slots for a doctor on a given date.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "doctor_name": {"type": "string", "description": "Name of the doctor"},
+                        "date": {"type": "string", "description": "Requested date in YYYY-MM-DD format"}
+                    },
+                    "required": ["doctor_name", "date"]
+                }
+            },
+            {
+                "name": "book_appointment",
+                "description": "Book an appointment slot for a patient.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "doctor_name": {"type": "string", "description": "Name of the doctor"},
+                        "date": {"type": "string", "description": "Appointment date in YYYY-MM-DD format"},
+                        "time": {"type": "string", "description": "Appointment time (e.g. 10:00 AM)"},
+                        "patient_name": {"type": "string", "description": "Full name of the patient"}
+                    },
+                    "required": ["doctor_name", "date", "time", "patient_name"]
+                }
+            },
+            {
+                "name": "request_prescription_refill",
+                "description": "Submit a refill request for an existing prescription.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "patient_name": {"type": "string", "description": "Full name of the patient"},
+                        "medication_name": {"type": "string", "description": "Name of the medication to refill"}
+                    },
+                    "required": ["patient_name", "medication_name"]
+                }
+            }
+        ],
+        "utterances": [
+            {
+                "id": "u01",
+                "text": "Hi, I'd like to see Dr. Patel next Tuesday for a check-up.",
+                "expect": {
+                    "tool": "check_doctor_availability",
+                    "args": {"doctor_name": "Dr. Patel"},
+                    "response_contains": ["available", "slot"]
+                }
+            },
+            {
+                "id": "u02",
+                "text": "The 10 AM slot works. My name is Sam Rivera.",
+                "expect": {
+                    "tool": "book_appointment",
+                    "args": {"doctor_name": "Dr. Patel", "time": "10:00 AM", "patient_name": "Sam Rivera"},
+                    "response_contains": ["confirmed", "appointment"]
+                }
+            },
+            {
+                "id": "u03",
+                "text": "While I have you, can you also put in a refill for my metformin?",
+                "expect": {
+                    "tool": "request_prescription_refill",
+                    "args": {"patient_name": "Sam Rivera", "medication_name": "metformin"},
+                    "response_contains": ["refill", "submitted"]
+                }
+            },
+            {
+                "id": "u04",
+                "text": "That's all, thanks so much.",
+                "expect": {"response_contains": ["welcome", "see you"]}
+            }
+        ]
+    },
+    "ecommerce": {
+        "id": "ecommerce",
+        "name": "Order Tracking & Returns",
+        "description": "Track an order, report a missing item, and initiate a return for a delivered package.",
+        "system_prompt": "You are an e-commerce customer support assistant. Help customers track orders, report missing or damaged items, and start the return process. Always look up the order before taking any action.",
+        "tools": [
+            {
+                "name": "track_order",
+                "description": "Look up the current status and estimated delivery date of an order.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "order_id": {"type": "string", "description": "Order ID (e.g. ORD-8821)"}
+                    },
+                    "required": ["order_id"]
+                }
+            },
+            {
+                "name": "report_issue",
+                "description": "Report a problem with a delivered order (missing item, damaged goods, wrong item).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "order_id": {"type": "string", "description": "Order ID"},
+                        "issue_type": {
+                            "type": "string",
+                            "description": "Type of issue.",
+                            "enum": ["missing_item", "damaged", "wrong_item"]
+                        },
+                        "description": {"type": "string", "description": "Brief description of the problem"}
+                    },
+                    "required": ["order_id", "issue_type"]
+                }
+            },
+            {
+                "name": "initiate_return",
+                "description": "Start a return request and generate a return shipping label.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "order_id": {"type": "string", "description": "Order ID"},
+                        "reason": {"type": "string", "description": "Reason for return (e.g. defective, wrong size, changed mind)"}
+                    },
+                    "required": ["order_id", "reason"]
+                }
+            }
+        ],
+        "utterances": [
+            {
+                "id": "u01",
+                "text": "Hey, I placed order ORD-8821 last week and haven't received it yet.",
+                "expect": {
+                    "tool": "track_order",
+                    "args": {"order_id": "ORD-8821"},
+                    "response_contains": ["delivery", "status"]
+                }
+            },
+            {
+                "id": "u02",
+                "text": "It says delivered but one of the items is missing from the box.",
+                "expect": {
+                    "tool": "report_issue",
+                    "args": {"order_id": "ORD-8821", "issue_type": "missing_item"},
+                    "response_contains": ["reported", "sorry"]
+                }
+            },
+            {
+                "id": "u03",
+                "text": "Actually I'd like to just return the whole order. It's not what I expected.",
+                "expect": {
+                    "tool": "initiate_return",
+                    "args": {"order_id": "ORD-8821"},
+                    "response_contains": ["return", "label"]
+                }
+            },
+            {
+                "id": "u04",
+                "text": "Great, thank you for your help.",
+                "expect": {"response_contains": ["welcome", "refund"]}
+            }
+        ]
+    },
     "dryrun": {
         "id": "dryrun",
         "name": "Dry Run Baseline",
@@ -349,19 +497,6 @@ TEMPLATES = {
 }
 
 
-def mock_execute_telecom(name: str, args: dict) -> str:
-    """Mock tool responses for Telecom Customer Support usecase."""
-    if name == "verify_identity":
-        return f"Identity verified successfully for phone number {args.get('phone_number') or '555-0199'}."
-    if name == "get_billing_details":
-        return f"Current charges for {args.get('phone_number') or '555-0199'} are $120.00. We found a disputed extra charge of $50.00."
-    if name == "change_plan":
-        return f"Successfully changed plan for {args.get('phone_number') or '555-0199'} to {args.get('plan_name') or 'unlimited'}."
-    if name == "waive_disputed_charge":
-        return f"Disputed charge of ${args.get('amount') or 50} has been waived for {args.get('phone_number') or '555-0199'}."
-    return f"Tool {name} executed successfully."
-
-
 def mock_execute_smarthome(name: str, args: dict) -> str:
     """Mock tool responses for Smart Home Automation usecase."""
     if name == "get_device_status":
@@ -379,6 +514,54 @@ def mock_execute_finance(name: str, args: dict) -> str:
         return f"The current balance for your {args.get('account_type') or 'checking'} account is $1,500.00."
     if name == "transfer_funds":
         return f"Successfully transferred ${args.get('amount') or 200} from {args.get('from_account') or 'savings'} to {args.get('to_account') or 'checking'}."
+    return f"Tool {name} executed successfully."
+
+
+def mock_execute_flight(name: str, args: dict) -> str:
+    """Mock tool responses for Flight Check-in usecase."""
+    if name == "get_flight_status":
+        flight = args.get("flight_number", "AA204")
+        return f"{flight} is on time. Departure gate is B14. Estimated departure 08:45 AM."
+    if name == "select_seat":
+        seat = args.get("seat", "14A")
+        passenger = args.get("passenger_name", "passenger")
+        return f"Seat {seat} has been confirmed for {passenger}."
+    if name == "add_checked_bag":
+        count = args.get("bag_count", 1)
+        return f"{count} checked bag(s) added to your booking. Fee of $35 applied."
+    return f"Tool {name} executed successfully."
+
+
+def mock_execute_healthcare(name: str, args: dict) -> str:
+    """Mock tool responses for Healthcare Appointment usecase."""
+    if name == "check_doctor_availability":
+        doctor = args.get("doctor_name", "Dr. Patel")
+        date = args.get("date", "next Tuesday")
+        return f"{doctor} has available slots on {date} at 9:00 AM, 10:00 AM, and 2:30 PM."
+    if name == "book_appointment":
+        doctor = args.get("doctor_name", "Dr. Patel")
+        time = args.get("time", "10:00 AM")
+        patient = args.get("patient_name", "patient")
+        return f"Appointment confirmed for {patient} with {doctor} at {time}. You will receive a reminder 24 hours before."
+    if name == "request_prescription_refill":
+        med = args.get("medication_name", "medication")
+        patient = args.get("patient_name", "patient")
+        return f"Refill request for {med} submitted for {patient}. It will be ready for pickup in 2 business days."
+    return f"Tool {name} executed successfully."
+
+
+def mock_execute_ecommerce(name: str, args: dict) -> str:
+    """Mock tool responses for Order Tracking & Returns usecase."""
+    if name == "track_order":
+        oid = args.get("order_id", "ORD-8821")
+        return f"Order {oid} was marked as delivered on June 14th. Last scan: front door."
+    if name == "report_issue":
+        oid = args.get("order_id", "ORD-8821")
+        issue = args.get("issue_type", "missing_item")
+        return f"Issue '{issue}' reported for order {oid}. A support ticket has been created and our team will follow up within 24 hours."
+    if name == "initiate_return":
+        oid = args.get("order_id", "ORD-8821")
+        return f"Return initiated for order {oid}. A prepaid shipping label has been emailed to you. Refund will be processed within 5–7 business days once received."
     return f"Tool {name} executed successfully."
 
 
@@ -413,6 +596,21 @@ def _bootstrap_templates_into_db() -> None:
 
     try:
         _ensure_initialized()
+        # Remove built-ins that no longer exist in BUILTIN_TEMPLATES (e.g. telecom).
+        from voxarena.database import get_db_connection
+        with get_db_connection() as conn:
+            rows = conn.execute(
+                "SELECT id FROM templates WHERE is_builtin = 1;"
+            ).fetchall()
+            stale = [r["id"] for r in rows if r["id"] not in BUILTIN_TEMPLATES]
+            if stale:
+                conn.execute(
+                    f"DELETE FROM templates WHERE id IN ({','.join('?' * len(stale))});",
+                    stale,
+                )
+                conn.commit()
+                from loguru import logger
+                logger.info(f"Removed {len(stale)} stale built-in template(s): {stale}")
         seeded = seed_builtin_templates(BUILTIN_TEMPLATES, force=False)
         if seeded:
             from loguru import logger
@@ -449,4 +647,3 @@ try:
     _bootstrap_templates_into_db()
 except Exception:
     pass
-

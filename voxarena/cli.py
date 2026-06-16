@@ -277,6 +277,7 @@ def cmd_report(args) -> int:
 
 def cmd_ui(args) -> int:
     _apply_workdir(args.workdir)
+    import logging
     import uvicorn
     import webbrowser
     import threading
@@ -285,6 +286,16 @@ def cmd_ui(args) -> int:
     host = args.host
     url = f"http://{host}:{port}"
     print(f"Starting VoxArena web UI server at {url}...")
+
+    # Suppress access-log noise from polling endpoints.
+    _SILENT_PATHS = {"/api/health", "/api/config"}
+
+    class _SilentPolling(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            msg = record.getMessage()
+            return not any(p in msg for p in _SILENT_PATHS)
+
+    logging.getLogger("uvicorn.access").addFilter(_SilentPolling())
 
     def open_browser():
         time.sleep(1.0)
@@ -312,6 +323,39 @@ CONFIGURABLE_KEYS = [
 ]
 
 SECRET_KEYS = {"GOOGLE_API_KEY", "OPENAI_API_KEY"}
+
+
+def cmd_clean(args) -> int:
+    """Remove the SQLite database (and optionally all results) from the workdir."""
+    _apply_workdir(args.workdir)
+    from voxarena.config import settings
+    from voxarena.database import DB_PATH
+
+    removed = []
+
+    db_path = DB_PATH
+    if os.path.exists(db_path):
+        if not args.yes:
+            answer = input(f"Remove SQLite database at {db_path}? [y/N] ").strip().lower()
+            if answer not in ("y", "yes"):
+                print("Aborted.")
+                return 1
+        os.remove(db_path)
+        removed.append(db_path)
+
+    if args.all:
+        results_dir = settings.RESULTS_DIR
+        if os.path.isdir(results_dir):
+            import shutil
+            shutil.rmtree(results_dir)
+            removed.append(results_dir)
+
+    if removed:
+        for p in removed:
+            print(f"Removed: {p}")
+    else:
+        print("Nothing to remove.")
+    return 0
 
 
 def cmd_config(args) -> int:
@@ -441,6 +485,16 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Project workdir containing script/ and results/ (default: cwd).")
     ui.set_defaults(func=cmd_ui)
 
+    cln = sub.add_parser("clean",
+                         help="Remove the SQLite database (run before `pipx uninstall voxarena`).")
+    cln.add_argument("--workdir", default=None,
+                     help="Project workdir containing the database (default: cwd).")
+    cln.add_argument("--all", action="store_true",
+                     help="Also remove the entire results/ directory.")
+    cln.add_argument("-y", "--yes", action="store_true",
+                     help="Skip confirmation prompt.")
+    cln.set_defaults(func=cmd_clean)
+
     cfg = sub.add_parser("config",
                          help="View or modify VoxArena settings (API keys, models, TTS).")
     cfg.add_argument("--workdir", default=None,
@@ -463,6 +517,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    # Pre-scan for --workdir before build_parser() triggers voxarena.config
+    # import (providers transitively import it, locking BASE_DIR to cwd).
+    for i, arg in enumerate(sys.argv):
+        if arg == "--workdir" and i + 1 < len(sys.argv):
+            _apply_workdir(sys.argv[i + 1])
+            break
+        if arg.startswith("--workdir="):
+            _apply_workdir(arg.split("=", 1)[1])
+            break
+
     parser = build_parser()
     args = parser.parse_args()
     sys.exit(args.func(args))

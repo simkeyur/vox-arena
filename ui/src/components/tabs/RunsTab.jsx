@@ -382,6 +382,7 @@ function RunInspector({ selectedRunId, selectedRunData, runningId, logs, logsEnd
                 </div>
                 <AudioPlayer
                   src={`/api/results/${selectedRunData.provider}/${selectedRunData.run_id}/stitched.wav`}
+                  fullWidth
                 />
               </div>
             )}
@@ -408,9 +409,12 @@ function RunInspector({ selectedRunId, selectedRunData, runningId, logs, logsEnd
                 </thead>
                 <tbody>
                   {selectedRunData.turns.map((turn, index) => {
-                    const passed = !!turn.transcript_output && turn.evaluation_passed !== false;
+                    const runActive = selectedRunData.status === 'running' || selectedRunData.status === 'pending';
+                    const turnPending = runActive && !turn.transcript_output;
+                    const passed = !turnPending && !!turn.transcript_output && turn.evaluation_passed !== false;
+                    const rowClass = turnPending ? 'row-running' : (passed ? 'row-pass' : 'row-fail');
                     return (
-                      <tr key={index} className={passed ? 'row-pass' : 'row-fail'}>
+                      <tr key={index} className={rowClass}>
                         <td><span className="header-badge" style={{ fontSize: 11 }}>{turn.utterance_id}</span></td>
                         <td style={{ maxWidth: 220 }}>{turn.text_input}</td>
                         <td style={{ maxWidth: 280, fontStyle: !turn.transcript_output ? 'italic' : 'normal', color: !turn.transcript_output ? 'var(--muted)' : 'inherit' }}>
@@ -444,9 +448,13 @@ function RunInspector({ selectedRunId, selectedRunData, runningId, logs, logsEnd
                           {turn.evaluation_notes || '—'}
                         </td>
                         <td>
-                          <span className={`status-badge ${passed ? 'completed' : 'failed'}`}>
-                            {passed ? 'PASS' : 'FAIL'}
-                          </span>
+                          {turnPending ? (
+                            <span className="status-badge running">RUNNING</span>
+                          ) : (
+                            <span className={`status-badge ${passed ? 'completed' : 'failed'}`}>
+                              {passed ? 'PASS' : 'FAIL'}
+                            </span>
+                          )}
                         </td>
                       </tr>
                     );

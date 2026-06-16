@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 
-export default function AudioWaveformVisualizer({ src, latencyMs }) {
+export default function AudioWaveformVisualizer({ src, latencyMs, currentTime, duration }) {
   const canvasRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [audioData, setAudioData] = useState(null);
-  const [duration, setDuration] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
   const [error, setError] = useState(false);
 
   useEffect(() => {
@@ -23,7 +23,7 @@ export default function AudioWaveformVisualizer({ src, latencyMs }) {
       })
       .then((audioBuffer) => {
         if (!active) return;
-        setDuration(audioBuffer.duration);
+        setAudioDuration(audioBuffer.duration);
 
         const rawData = audioBuffer.getChannelData(0);
         const samples = 80;
@@ -80,13 +80,14 @@ export default function AudioWaveformVisualizer({ src, latencyMs }) {
       const x = i * barWidth;
       const y = (h - barHeight) / 2;
 
-      const barTime = (i / audioData.length) * duration;
+      const barTime = (i / audioData.length) * (audioDuration || 0);
       const isLatency = latencyMs && barTime < (latencyMs / 1000);
+      const isPlayed = currentTime && duration && barTime < currentTime;
 
       if (isLatency) {
-        ctx.fillStyle = 'rgba(99, 102, 241, 0.35)';
+        ctx.fillStyle = isPlayed ? 'rgba(99, 102, 241, 0.85)' : 'rgba(99, 102, 241, 0.35)';
       } else {
-        ctx.fillStyle = 'rgba(16, 185, 129, 0.85)';
+        ctx.fillStyle = isPlayed ? 'rgba(16, 185, 129, 1)' : 'rgba(16, 185, 129, 0.35)';
       }
 
       ctx.beginPath();
@@ -97,9 +98,16 @@ export default function AudioWaveformVisualizer({ src, latencyMs }) {
       }
       ctx.fill();
     }
-  }, [audioData, duration, latencyMs]);
 
-  const latencyPercent = (latencyMs && duration) ? Math.min(95, ((latencyMs / 1000) / duration) * 100) : 0;
+    // playhead line
+    if (currentTime && duration) {
+      const playheadX = (currentTime / duration) * w;
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.fillRect(playheadX - 1, 0, 2, h);
+    }
+  }, [audioData, audioDuration, latencyMs, currentTime, duration]);
+
+  const latencyPercent = (latencyMs && audioDuration) ? Math.min(95, ((latencyMs / 1000) / audioDuration) * 100) : 0;
 
   return (
     <div className="audio-player-wrapper">
