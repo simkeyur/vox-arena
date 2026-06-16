@@ -47,9 +47,19 @@ class Agent:
             if self.template_id == "custom":
                 self.template_id = get_setting("LAST_LOADED_TEMPLATE") or "restaurant"
 
-        from voxarena.templates import TEMPLATES
-        if self.template_id in TEMPLATES:
-            tpl = TEMPLATES[self.template_id]
+        # Templates live in SQLite; built-ins are seeded from BUILTIN_TEMPLATES.
+        # Fall back to the legacy in-memory dict only if the DB lookup fails.
+        from voxarena.database import get_template_db
+        tpl = None
+        try:
+            tpl = get_template_db(self.template_id)
+        except Exception:
+            tpl = None
+        if tpl is None:
+            from voxarena.templates import BUILTIN_TEMPLATES
+            tpl = BUILTIN_TEMPLATES.get(self.template_id)
+
+        if tpl is not None:
             self.system_prompt = tpl["system_prompt"]
             self.tool_schemas = tpl["tools"]
         else:

@@ -110,42 +110,49 @@ Click on each step below to view the application interface:
 <details open>
   <summary>📊 1. Arena Dashboard (Landing Page)</summary>
   <br/>
-  <img src="docs/app-screenshots/screenshot_1.png" alt="Arena Dashboard" width="800" />
+  <img src="https://raw.githubusercontent.com/simkeyur/vox-arena/main/docs/app-screenshots/screenshot_1.png" alt="Arena Dashboard" width="800" />
   <p><em>Compare latency showdown (TTFA), tool-call accuracy rates, and total hallucinations side-by-side across voice providers, and view the comparative history log of all past runs.</em></p>
 </details>
 
 <details>
   <summary>⚙️ 2. Configure & Launch a Run</summary>
   <br/>
-  <img src="docs/app-screenshots/screenshot_2.png" alt="Launch Benchmark Run" width="800" />
+  <img src="https://raw.githubusercontent.com/simkeyur/vox-arena/main/docs/app-screenshots/screenshot_2.png" alt="Launch Benchmark Run" width="800" />
   <p><em>Configure custom models, pick predefined benchmarking templates (Restaurant, Telecom, Smart Home, Financial, Dry Run), and choose transport layers (direct-injection or WebRTC) to launch parallel runs.</em></p>
 </details>
 
 <details>
   <summary>⚡ 3. Live Telemetry & Pipeline Monitoring</summary>
   <br/>
-  <img src="docs/app-screenshots/screenshot_3.png" alt="Live Telemetry" width="800" />
+  <img src="https://raw.githubusercontent.com/simkeyur/vox-arena/main/docs/app-screenshots/screenshot_3.png" alt="Live Telemetry" width="800" />
   <p><em>Watch runs execute in real-time. The live flow diagrams display active Pipecat telemetry states (Audio Injector -> Provider Adapter -> Audio Capture -> Metrics Collector) alongside terminal logs.</em></p>
 </details>
 
 <details>
   <summary>🔎 4. Deep-Dive Run Inspection</summary>
   <br/>
-  <img src="docs/app-screenshots/screenshot_4.png" alt="Completed Run Details" width="800" />
+  <img src="https://raw.githubusercontent.com/simkeyur/vox-arena/main/docs/app-screenshots/screenshot_4.png" alt="Completed Run Details" width="800" />
   <p><em>Examine the full turn-by-turn log of any completed run to view exact agent transcripts, latency measurements, and play back bot audio responses turn-by-turn.</em></p>
 </details>
 
 <details>
   <summary>🆚 5. Side-by-Side Completed Run Comparison</summary>
   <br/>
-  <img src="docs/app-screenshots/screenshot_5.png" alt="Side-by-Side Comparison" width="800" />
+  <img src="https://raw.githubusercontent.com/simkeyur/vox-arena/main/docs/app-screenshots/screenshot_5.png" alt="Side-by-Side Comparison" width="800" />
   <p><em>Select any two completed runs (e.g. Gemini vs OpenAI) and compare their performance turn-by-turn with aligned responses, waveform comparisons, and specific failure notes.</em></p>
 </details>
 
 <details>
-  <summary>📝 6. Interactive Script Editor</summary>
+  <summary>⚙️ 6. Provider Model Settings</summary>
   <br/>
-  <img src="docs/app-screenshots/screenshot_6.png" alt="Interactive Script Editor" width="800" />
+  <img src="https://raw.githubusercontent.com/simkeyur/vox-arena/main/docs/app-screenshots/screenshot_6.png" alt="Provider Model Settings" width="800" />
+  <p><em>Configure Google Gemini and OpenAI API keys, verify credentials, and specify default or custom realtime model versions to use during evaluation.</em></p>
+</details>
+
+<details>
+  <summary>📝 7. Interactive Script Editor</summary>
+  <br/>
+  <img src="https://raw.githubusercontent.com/simkeyur/vox-arena/main/docs/app-screenshots/screenshot_7.png" alt="Interactive Script Editor" width="800" />
   <p><em>Create, modify, and manage your conversation scripts, expect blocks, and substrings directly from the browser without editing raw YAML/JSON files.</em></p>
 </details>
 

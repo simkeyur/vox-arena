@@ -380,3 +380,73 @@ def mock_execute_finance(name: str, args: dict) -> str:
     if name == "transfer_funds":
         return f"Successfully transferred ${args.get('amount') or 200} from {args.get('from_account') or 'savings'} to {args.get('to_account') or 'checking'}."
     return f"Tool {name} executed successfully."
+
+
+import os
+import json
+from voxarena.config import settings
+
+# BUILTIN_TEMPLATES is the source of truth used to SEED the SQLite `templates`
+# table on first start and to RESTORE built-ins when the user hits "Reset All
+# Data" in the Danger Zone. After seeding, the live template store is the DB —
+# user edits to built-in name/prompt/tools/utterances persist across restarts.
+BUILTIN_TEMPLATES = TEMPLATES
+
+# Legacy file from the pre-DB era. If it exists on first start, we migrate its
+# contents into the templates table (as custom templates) and then leave the
+# file alone. Subsequent edits go to the DB.
+_LEGACY_CUSTOM_TEMPLATES_FILE = os.path.join(settings.SCRIPT_DIR, "custom_templates.json")
+
+
+def _bootstrap_templates_into_db() -> None:
+    """Seed built-ins on first start; one-time migrate legacy custom_templates.json.
+
+    Idempotent: skips built-ins that already exist (so user edits persist), and
+    skips the legacy migration once any custom row is present in the table.
+    """
+    from voxarena.database import (
+        seed_builtin_templates,
+        get_template_db,
+        upsert_template_db,
+        _ensure_initialized,
+    )
+
+    try:
+        _ensure_initialized()
+        seeded = seed_builtin_templates(BUILTIN_TEMPLATES, force=False)
+        if seeded:
+            from loguru import logger
+            logger.info(f"Seeded {seeded} built-in template(s) into SQLite.")
+    except Exception as e:
+        from loguru import logger
+        logger.error(f"Failed to seed built-in templates: {e}")
+        return
+
+    # Legacy migration: pull anything from custom_templates.json that isn't
+    # already in the DB. Only runs as long as the legacy file is around.
+    if os.path.exists(_LEGACY_CUSTOM_TEMPLATES_FILE):
+        try:
+            with open(_LEGACY_CUSTOM_TEMPLATES_FILE, "r") as f:
+                legacy = json.load(f)
+            migrated = 0
+            for tid, tinfo in (legacy or {}).items():
+                if get_template_db(tid) is None:
+                    payload = dict(tinfo)
+                    payload["id"] = tid
+                    payload["is_builtin"] = False
+                    upsert_template_db(payload)
+                    migrated += 1
+            if migrated:
+                from loguru import logger
+                logger.info(f"Migrated {migrated} custom template(s) from legacy file into SQLite.")
+        except Exception as e:
+            from loguru import logger
+            logger.warning(f"Skipping legacy custom_templates.json migration: {e}")
+
+
+# Eagerly bootstrap on import so any caller that queries templates sees them.
+try:
+    _bootstrap_templates_into_db()
+except Exception:
+    pass
+

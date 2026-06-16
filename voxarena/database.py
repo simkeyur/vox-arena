@@ -132,6 +132,20 @@ def init_db():
             );
         """)
 
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS templates (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                system_prompt TEXT NOT NULL,
+                tools TEXT NOT NULL DEFAULT '[]',
+                utterances TEXT NOT NULL DEFAULT '[]',
+                is_builtin INTEGER NOT NULL DEFAULT 0,
+                created_at REAL,
+                updated_at REAL
+            );
+        """)
+
         # Migrate older databases that predate the position column. Backfill
         # positions by current rowid so existing rows keep their relative order.
         utt_cols = {row["name"] for row in conn.execute("PRAGMA table_info(utterances);").fetchall()}
@@ -396,14 +410,171 @@ def delete_run_from_db(run_id: str):
     logger.info(f"Deleted run {run_id} from SQLite database.")
 
 
-def reset_db():
-    """Wipe all runs and turns from SQLite, starting from a clean slate."""
+def reset_db(restore_builtin_templates: Optional[Dict[str, Dict[str, Any]]] = None):
+    """Wipe runs, turns, and all templates. If a builtin map is passed, reseed it."""
     _ensure_initialized()
     with get_db_connection() as conn:
         conn.execute("DELETE FROM turns;")
         conn.execute("DELETE FROM runs;")
+        conn.execute("DELETE FROM templates;")
         conn.commit()
-    logger.warning("Reset SQLite database: deleted all runs and turns.")
+    logger.warning("Reset SQLite database: deleted runs, turns, and templates.")
+    if restore_builtin_templates:
+        seed_builtin_templates(restore_builtin_templates, force=True)
+        logger.warning(f"Restored {len(restore_builtin_templates)} built-in templates.")
+
+
+def _template_row_to_dict(row) -> Dict[str, Any]:
+    try:
+        tools = json.loads(row["tools"]) if row["tools"] else []
+    except Exception:
+        tools = []
+    try:
+        utterances = json.loads(row["utterances"]) if row["utterances"] else []
+    except Exception:
+        utterances = []
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "description": row["description"] or "",
+        "system_prompt": row["system_prompt"],
+        "tools": tools,
+        "utterances": utterances,
+        "is_builtin": bool(row["is_builtin"]),
+    }
+
+
+def list_templates_db() -> List[Dict[str, Any]]:
+    _ensure_initialized()
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, name, description, system_prompt, tools, utterances, is_builtin "
+            "FROM templates ORDER BY is_builtin DESC, name ASC;"
+        ).fetchall()
+        return [_template_row_to_dict(r) for r in rows]
+
+
+def get_template_db(template_id: str) -> Optional[Dict[str, Any]]:
+    _ensure_initialized()
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT id, name, description, system_prompt, tools, utterances, is_builtin "
+            "FROM templates WHERE id = ?;",
+            (template_id,),
+        ).fetchone()
+        return _template_row_to_dict(row) if row else None
+
+
+def upsert_template_db(template: Dict[str, Any]) -> None:
+    """Insert or replace a template by id. Caller controls is_builtin."""
+    _ensure_initialized()
+    import time as _time
+    now = _time.time()
+    with get_db_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO templates (id, name, description, system_prompt, tools, utterances, is_builtin, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                description = excluded.description,
+                system_prompt = excluded.system_prompt,
+                tools = excluded.tools,
+                utterances = excluded.utterances,
+                is_builtin = excluded.is_builtin,
+                updated_at = excluded.updated_at;
+            """,
+            (
+                template["id"],
+                template["name"],
+                template.get("description", ""),
+                template["system_prompt"],
+                json.dumps(template.get("tools", [])),
+                json.dumps(template.get("utterances", [])),
+                1 if template.get("is_builtin") else 0,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+
+
+def update_template_metadata_db(template_id: str, name: str, description: str) -> bool:
+    _ensure_initialized()
+    import time as _time
+    with get_db_connection() as conn:
+        cur = conn.execute(
+            "UPDATE templates SET name = ?, description = ?, updated_at = ? WHERE id = ?;",
+            (name, description, _time.time(), template_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def update_template_agent_db(template_id: str, system_prompt: str, tools: List[Dict[str, Any]]) -> bool:
+    _ensure_initialized()
+    import time as _time
+    with get_db_connection() as conn:
+        cur = conn.execute(
+            "UPDATE templates SET system_prompt = ?, tools = ?, updated_at = ? WHERE id = ?;",
+            (system_prompt, json.dumps(tools), _time.time(), template_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def update_template_utterances_db(template_id: str, utterances: List[Dict[str, Any]]) -> bool:
+    _ensure_initialized()
+    import time as _time
+    with get_db_connection() as conn:
+        cur = conn.execute(
+            "UPDATE templates SET utterances = ?, updated_at = ? WHERE id = ?;",
+            (json.dumps(utterances), _time.time(), template_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def delete_template_db(template_id: str) -> bool:
+    _ensure_initialized()
+    with get_db_connection() as conn:
+        cur = conn.execute("DELETE FROM templates WHERE id = ?;", (template_id,))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def seed_builtin_templates(builtins: Dict[str, Dict[str, Any]], force: bool = False) -> int:
+    """Seed built-in templates from the source-of-truth dict.
+
+    By default (force=False), only inserts templates whose IDs are missing —
+    user edits to existing built-ins are preserved across restarts.
+    With force=True, REPLACES all built-ins (used by reset).
+    """
+    _ensure_initialized()
+    inserted = 0
+    with get_db_connection() as conn:
+        existing = {row["id"] for row in conn.execute(
+            "SELECT id FROM templates WHERE is_builtin = 1;"
+        ).fetchall()}
+        for tid, tinfo in builtins.items():
+            if tid in existing and not force:
+                continue
+            payload = dict(tinfo)
+            payload["id"] = tid
+            payload["is_builtin"] = True
+            upsert_template_db(payload)
+            inserted += 1
+    return inserted
+
+
+def first_available_template_id() -> Optional[str]:
+    """For graceful fallback when the active template has been deleted."""
+    _ensure_initialized()
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT id FROM templates ORDER BY is_builtin DESC, name ASC LIMIT 1;"
+        ).fetchone()
+        return row["id"] if row else None
 
 
 def load_utterances_from_db() -> List[Dict[str, Any]]:
@@ -492,8 +663,8 @@ def bootstrap_utterances_if_empty() -> None:
 
     # Try loading from built-in python templates first
     try:
-        from voxarena.templates import TEMPLATES
-        save_utterances_to_db(TEMPLATES["restaurant"]["utterances"])
+        from voxarena.templates import BUILTIN_TEMPLATES
+        save_utterances_to_db(BUILTIN_TEMPLATES["restaurant"]["utterances"])
         from voxarena.config import set_setting
         set_setting("ACTIVE_TEMPLATE", "restaurant")
         set_setting("LAST_LOADED_TEMPLATE", "restaurant")

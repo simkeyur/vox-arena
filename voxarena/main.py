@@ -313,16 +313,15 @@ class UtterancesJsonUpdateRequest(BaseModel):
 
 @app.post("/api/utterances/json")
 async def update_utterances_json(req: UtterancesJsonUpdateRequest):
-    """Overwrite SQLite utterances from a parsed JSON array.
-
-    Does NOT touch ACTIVE_TEMPLATE — the user's edited turns are evaluated
-    against whatever agent (system_prompt + tools) the currently-active
-    template defines. Setting ACTIVE_TEMPLATE='custom' previously caused
-    Agent() to silently fall back to the restaurant agent, so custom turns
-    were graded against the wrong system prompt.
-    """
+    """Overwrite SQLite utterances and persist them on the currently-active template."""
     try:
+        from voxarena.database import update_template_utterances_db
         save_utterances_to_db(req.utterances)
+
+        active_template = get_setting("ACTIVE_TEMPLATE")
+        if active_template:
+            update_template_utterances_db(active_template, req.utterances)
+
         return {"status": "saved", "count": len(req.utterances)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save utterances: {e}")
@@ -330,20 +329,23 @@ async def update_utterances_json(req: UtterancesJsonUpdateRequest):
 
 @app.get("/api/templates")
 async def get_templates():
-    """Retrieve metadata of all built-in benchmarking usecase templates."""
+    """Retrieve all templates (built-in + custom) from SQLite."""
     try:
-        from voxarena.templates import TEMPLATES
-        # Return built-in templates
-        builtin = [
+        from voxarena.database import list_templates_db
+        return [
             {
-                "id": tid,
-                "name": tinfo["name"],
-                "description": tinfo["description"],
-                "turns_count": len(tinfo["utterances"]),
+                "id": t["id"],
+                "name": t["name"],
+                "description": t["description"],
+                "turns_count": len(t.get("utterances", [])),
+                "is_builtin": t.get("is_builtin", False),
+                # Kept for UI back-compat; "custom" == NOT built-in.
+                "is_custom": not t.get("is_builtin", False),
+                "system_prompt": t.get("system_prompt", ""),
+                "tools": t.get("tools", []),
             }
-            for tid, tinfo in TEMPLATES.items()
+            for t in list_templates_db()
         ]
-        return builtin
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get templates: {e}")
 
@@ -351,35 +353,161 @@ async def get_templates():
 class CreateTemplateRequest(BaseModel):
     name: str
     description: str
-    utterances: List[Dict[str, Any]]
+    first_message: Optional[str] = None
+    copy_from_template_id: Optional[str] = None
+    utterances: Optional[List[Dict[str, Any]]] = None
+    system_prompt: Optional[str] = None
+    tools: Optional[List[Dict[str, Any]]] = None
 
 
 @app.post("/api/templates")
 async def create_template(req: CreateTemplateRequest):
-    """Save a new template (mocked for this prototype)."""
-    # In a real app, we'd save this to a JSON file or DB.
-    # For now, we'll just acknowledge it so the UI flow works.
-    logger.info(f"Creating new template: {req.name}")
-    return {"status": "created", "name": req.name}
+    """Create a new (non-builtin) template in the DB."""
+    try:
+        import re
+        from voxarena.database import get_template_db, upsert_template_db
+
+        base_id = re.sub(r"[^a-z0-9]+", "_", req.name.lower()).strip("_") or "template"
+        template_id = f"custom_{base_id}"
+        suffix = 1
+        while get_template_db(template_id) is not None:
+            template_id = f"custom_{base_id}_{suffix}"
+            suffix += 1
+
+        # Prefer explicit system_prompt/tools from the request. Otherwise clone
+        # from the requested parent template (and only then fall back to the
+        # first available template — the bug we fixed earlier where every new
+        # template silently inherited Saffron Leaf lives in the inverse path).
+        if req.system_prompt is not None or req.tools is not None:
+            system_prompt = (req.system_prompt or "").strip() or "You are a helpful assistant."
+            tools = req.tools if req.tools is not None else []
+        else:
+            copy_id = req.copy_from_template_id
+            if not copy_id or copy_id == "custom":
+                copy_id = get_setting("LAST_LOADED_TEMPLATE") or "restaurant"
+            parent_tpl = get_template_db(copy_id) or get_template_db("restaurant")
+            if not parent_tpl:
+                system_prompt = "You are a helpful assistant."
+                tools = []
+            else:
+                system_prompt = parent_tpl["system_prompt"]
+                tools = parent_tpl["tools"]
+
+        if req.utterances is not None:
+            utterances = req.utterances
+        else:
+            utterances = [{
+                "id": "u01",
+                "text": (req.first_message or "").strip(),
+                "expect": {"response_contains": []},
+            }]
+
+        upsert_template_db({
+            "id": template_id,
+            "name": req.name.strip(),
+            "description": req.description.strip(),
+            "system_prompt": system_prompt,
+            "tools": tools,
+            "utterances": utterances,
+            "is_builtin": False,
+        })
+        logger.info(f"Created new template: {template_id} ({req.name})")
+        return {"status": "created", "template_id": template_id, "name": req.name}
+    except Exception as e:
+        logger.error(f"Failed to create template: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create template: {e}")
+
+
+class UpdateTemplateMetadataRequest(BaseModel):
+    name: str
+    description: str
+
+
+@app.post("/api/templates/{template_id}/metadata")
+async def update_template_metadata(template_id: str, req: UpdateTemplateMetadataRequest):
+    """Update a template's name and description. Works for built-in templates too —
+    edits persist until the user resets the DB from the Danger Zone."""
+    try:
+        from voxarena.database import update_template_metadata_db
+        ok = update_template_metadata_db(template_id, req.name.strip(), req.description.strip())
+        if not ok:
+            raise HTTPException(status_code=404, detail=f"Template '{template_id}' not found.")
+        logger.info(f"Updated metadata for template: {template_id}")
+        return {"status": "updated", "template_id": template_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update template metadata: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update template: {e}")
+
+
+class UpdateTemplateAgentRequest(BaseModel):
+    system_prompt: str
+    tools: List[Dict[str, Any]]
+
+
+@app.post("/api/templates/{template_id}/agent")
+async def update_template_agent(template_id: str, req: UpdateTemplateAgentRequest):
+    """Update a template's system_prompt and tools. Built-ins are editable too."""
+    try:
+        from voxarena.database import update_template_agent_db
+        ok = update_template_agent_db(template_id, req.system_prompt.strip(), req.tools)
+        if not ok:
+            raise HTTPException(status_code=404, detail=f"Template '{template_id}' not found.")
+        logger.info(f"Updated agent definition for template: {template_id}")
+        return {"status": "updated", "template_id": template_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update template agent: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update template agent: {e}")
+
+
+@app.delete("/api/templates/{template_id}")
+async def delete_template(template_id: str):
+    """Delete ANY template (built-in or custom). Built-ins are restored when the
+    user clicks Reset All Data in the Danger Zone."""
+    try:
+        from voxarena.database import delete_template_db, first_available_template_id
+        ok = delete_template_db(template_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail=f"Template '{template_id}' not found.")
+
+        # If the deleted template was active, fall back to whatever's left.
+        if (get_setting("ACTIVE_TEMPLATE") or "") == template_id:
+            fallback = first_available_template_id()
+            if fallback:
+                set_setting("ACTIVE_TEMPLATE", fallback)
+            else:
+                set_setting("ACTIVE_TEMPLATE", "")
+        logger.info(f"Deleted template: {template_id}")
+        return {"status": "deleted", "template_id": template_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete template: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete template: {e}")
 
 
 @app.post("/api/templates/{template_id}/load")
 async def load_template(template_id: str):
-    """Overwrite SQLite utterances with turns from the specified built-in template."""
+    """Overwrite SQLite utterances with turns from the specified template."""
     try:
-        from voxarena.templates import TEMPLATES
-        if template_id not in TEMPLATES:
+        from voxarena.database import get_template_db, list_templates_db
+        tpl = get_template_db(template_id)
+        if tpl is None:
+            ids = [t["id"] for t in list_templates_db()]
             raise HTTPException(
                 status_code=404,
-                detail=f"Template '{template_id}' not found. Available: {list(TEMPLATES.keys())}",
+                detail=f"Template '{template_id}' not found. Available: {ids}",
             )
-        save_utterances_to_db(TEMPLATES[template_id]["utterances"])
+        save_utterances_to_db(tpl["utterances"])
         set_setting("ACTIVE_TEMPLATE", template_id)
         set_setting("LAST_LOADED_TEMPLATE", template_id)
         return {
             "status": "loaded",
             "template_id": template_id,
-            "count": len(TEMPLATES[template_id]["utterances"]),
+            "count": len(tpl["utterances"]),
         }
     except HTTPException:
         raise
@@ -511,12 +639,17 @@ async def delete_run(run_id: str):
 
 @app.post("/api/database/reset")
 async def reset_database():
-    """Wipe all run history from SQLite and delete saved results/audio on disk."""
+    """Factory-reset: wipe runs, audio, custom templates, and restore built-in
+    templates from BUILTIN_TEMPLATES in voxarena/templates.py."""
     for run_id in list(ACTIVE_HARNESSES.keys()):
         runner.stop_run(run_id)
 
     try:
-        reset_db()
+        from voxarena.templates import BUILTIN_TEMPLATES
+        reset_db(restore_builtin_templates=BUILTIN_TEMPLATES)
+        # After reseed, point ACTIVE_TEMPLATE at restaurant (if it exists post-reset).
+        set_setting("ACTIVE_TEMPLATE", "restaurant" if "restaurant" in BUILTIN_TEMPLATES else "")
+        set_setting("LAST_LOADED_TEMPLATE", "restaurant" if "restaurant" in BUILTIN_TEMPLATES else "")
     except Exception as e:
         logger.error(f"Failed to reset SQLite database: {e}")
         raise HTTPException(status_code=500, detail=f"Database error during reset: {e}")

@@ -178,11 +178,16 @@ def execute_tool(name: str, arguments: Dict[str, Any], template_id: Optional[str
         from voxarena.templates import mock_execute_finance
         return mock_execute_finance(name, arguments)
 
-    if name not in TOOL_FUNCTION_MAP:
-        return f"Tool '{name}' is not a valid tool."
-    try:
-        return TOOL_FUNCTION_MAP[name](**arguments)
-    except TypeError as e:
-        return f"Invalid arguments for tool '{name}': {str(e)}"
-    except Exception as e:
-        return f"Execution error for tool '{name}': {str(e)}"
+    if name in TOOL_FUNCTION_MAP:
+        try:
+            return TOOL_FUNCTION_MAP[name](**arguments)
+        except TypeError as e:
+            return f"Invalid arguments for tool '{name}': {str(e)}"
+        except Exception as e:
+            return f"Execution error for tool '{name}': {str(e)}"
+
+    # Generic mock for custom templates: echo args so the agent can keep flowing.
+    if arguments:
+        arg_summary = ", ".join(f"{k}={v}" for k, v in arguments.items())
+        return f"Tool '{name}' executed successfully with {arg_summary}."
+    return f"Tool '{name}' executed successfully."
