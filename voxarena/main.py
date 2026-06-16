@@ -333,7 +333,8 @@ async def get_templates():
     """Retrieve metadata of all built-in benchmarking usecase templates."""
     try:
         from voxarena.templates import TEMPLATES
-        return [
+        # Return built-in templates
+        builtin = [
             {
                 "id": tid,
                 "name": tinfo["name"],
@@ -342,8 +343,24 @@ async def get_templates():
             }
             for tid, tinfo in TEMPLATES.items()
         ]
+        return builtin
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get templates: {e}")
+
+
+class CreateTemplateRequest(BaseModel):
+    name: str
+    description: str
+    utterances: List[Dict[str, Any]]
+
+
+@app.post("/api/templates")
+async def create_template(req: CreateTemplateRequest):
+    """Save a new template (mocked for this prototype)."""
+    # In a real app, we'd save this to a JSON file or DB.
+    # For now, we'll just acknowledge it so the UI flow works.
+    logger.info(f"Creating new template: {req.name}")
+    return {"status": "created", "name": req.name}
 
 
 @app.post("/api/templates/{template_id}/load")

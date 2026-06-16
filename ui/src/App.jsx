@@ -3,8 +3,8 @@ import {
   Sun, Moon, Play, Pause, BarChart3, History, Settings, 
   Mic, CloudLightning, AudioLines, ClipboardCheck, ArrowRightLeft, 
   Trash2, CheckCircle2, XCircle, AlertCircle, ArrowLeft,
-  ChevronLeft, ChevronRight, LayoutDashboard, Plus, Cpu, MessageSquare, ShieldAlert, GitCompare,
-  DollarSign, Key, Volume2
+  ChevronLeft, ChevronRight, LayoutDashboard, Plus, Cpu, MessageSquare, ShieldAlert, ShieldCheck, GitCompare,
+  DollarSign, Key, Volume2, Target, Zap, Edit2
 } from 'lucide-react';
 import logoUrl from './assets/logo.png';
 import './App.css';
@@ -415,6 +415,9 @@ function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [isNewRunModalOpen, setIsNewRunModalOpen] = useState(false);
+  const [isAddTemplateModalOpen, setIsAddTemplateModalOpen] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState('');
+  const [newTemplateDesc, setNewTemplateDesc] = useState('');
   const [backendConfig, setBackendConfig] = useState(null);
   const [backendStatus, setBackendStatus] = useState('checking');
   const [runs, setRuns] = useState([]);
@@ -491,14 +494,18 @@ function App() {
   const [activeComparison, setActiveComparison] = useState(null);
   const [loadingComparison, setLoadingComparison] = useState(false);
 
-  // Modal for adding a new utterance
+  // Modal for adding/editing an utterance
   const [isAddUtteranceModalOpen, setIsAddUtteranceModalOpen] = useState(false);
+  const [editingUtteranceIdx, setEditingUtteranceIdx] = useState(null);
   const [newUtteranceId, setNewUtteranceId] = useState('');
   const [newUtteranceText, setNewUtteranceText] = useState('');
   const [newUtteranceExpectType, setNewUtteranceExpectType] = useState('none');
   const [newUtterancePhrases, setNewUtterancePhrases] = useState('');
   const [newUtteranceTool, setNewUtteranceTool] = useState('');
   const [newUtteranceArgs, setNewUtteranceArgs] = useState('');
+  const [newUtteranceBehaviorType, setNewUtteranceBehaviorType] = useState('sequential');
+  const [newUtteranceBargeInDelay, setNewUtteranceBargeInDelay] = useState(600);
+  const [newUtteranceExpectInterrupted, setNewUtteranceExpectInterrupted] = useState(false);
 
   // Runs table search & sorting
   const [runsSearchQuery, setRunsSearchQuery] = useState('');
@@ -1090,16 +1097,40 @@ function App() {
   };
 
   const handleLoadTemplate = (templateId) => {
-    if (settingsUtterances.length > 0) {
-      setConfirmModalConfig({
-        title: 'Overwrite scripted utterances?',
-        message: 'Loading a template will overwrite your current scripted test utterances. Are you sure you want to continue?',
-        isDanger: false,
-        onConfirm: () => executeLoadTemplate(templateId)
-      });
-    } else {
-      executeLoadTemplate(templateId);
+    executeLoadTemplate(templateId);
+  };
+
+  const handleCreateTemplate = () => {
+    if (!newTemplateName.trim()) {
+      alert('Please provide a template name.');
+      return;
     }
+    
+    fetch(`${backendUrl}/api/templates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: newTemplateName,
+        description: newTemplateDesc,
+        utterances: settingsUtterances
+      })
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to create template');
+        return res.json();
+      })
+      .then(data => {
+        setUtterancesSaveMsg(`Template "${newTemplateName}" created.`);
+        setIsAddTemplateModalOpen(false);
+        setNewTemplateName('');
+        setNewTemplateDesc('');
+        // Refresh templates list
+        fetch(`${backendUrl}/api/templates`)
+          .then(res => res.json())
+          .then(data => setTemplates(Array.isArray(data) ? data : []));
+        setTimeout(() => setUtterancesSaveMsg(''), 3000);
+      })
+      .catch(err => alert(err.message));
   };
 
   const executeLoadTemplate = (templateId) => {
@@ -1481,14 +1512,22 @@ function App() {
           </div>
         )}
         {activeTab === 'dashboard' && noModelsConfigured && (
-          <div className="setup-banner danger-zone">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <AlertCircle size={16} style={{ color: 'var(--error)', flexShrink: 0 }} />
-              <div>
-                <strong>Configuration Warning:</strong> No voice models are configured. Please set up model names for Gemini and OpenAI to run benchmarks.
+          <div className="setup-banner" style={{ 
+            background: 'rgba(239, 68, 68, 0.05)', 
+            borderColor: 'rgba(239, 68, 68, 0.15)',
+            borderWidth: 1,
+            borderStyle: 'solid',
+            marginBottom: 20,
+            padding: '8px 16px',
+            borderRadius: 8
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: 13 }}>
+              <AlertCircle size={14} style={{ color: 'var(--error)', flexShrink: 0, opacity: 0.8 }} />
+              <div style={{ color: 'var(--muted)' }}>
+                <strong style={{ color: 'var(--error)', fontWeight: 600 }}>Configuration Hint:</strong> No voice models are configured. Set up model names to start benchmarking.
               </div>
             </div>
-            <button className="btn btn-primary" onClick={() => { window.location.hash = '#/settings'; }}>
+            <button className="btn" style={{ fontSize: 12, height: 28, padding: '0 10px' }} onClick={() => { window.location.hash = '#/settings'; }}>
               Configure Models
             </button>
           </div>
@@ -2419,20 +2458,21 @@ function App() {
             {/* Local Storage Security Banner */}
             <div className="setup-banner" style={{ 
               marginBottom: 16, 
-              background: 'rgba(99, 102, 241, 0.05)', 
-              borderColor: 'rgba(99, 102, 241, 0.15)',
+              background: 'transparent', 
+              borderColor: 'var(--border)',
               display: 'flex',
               alignItems: 'center',
-              gap: 10,
-              fontSize: 13,
-              borderRadius: 12,
-              padding: '12px 16px',
+              gap: 12,
+              fontSize: 12,
+              borderRadius: 8,
+              padding: '10px 14px',
               borderWidth: 1,
-              borderStyle: 'solid'
+              borderStyle: 'solid',
+              opacity: 0.8
             }}>
-              <span style={{ fontSize: 18 }}>🔒</span>
-              <div style={{ color: 'var(--fg)', textAlign: 'left' }}>
-                <strong>Local-Only Storage:</strong> Your API keys and configurations are saved strictly inside your local SQLite database (`runs.db`). They never leave your machine and are only transmitted directly to the official Google Gemini or OpenAI API endpoints during benchmarks.
+              <Zap size={16} style={{ color: '#ffd000', flexShrink: 0 }} />
+              <div style={{ color: 'var(--muted)', textAlign: 'left', lineHeight: '1.4', flex: 1 }}>
+                <strong style={{ color: 'var(--fg)', fontWeight: 600 }}>Local-Only Storage:</strong> Your API keys and configurations are saved strictly inside your local SQLite database (`runs.db`). They never leave your machine and are only transmitted directly to the official Google Gemini or OpenAI API endpoints during benchmarks.
               </div>
             </div>
 
@@ -2898,59 +2938,68 @@ function App() {
             )}
 
             {settingsSubTab === 'utterances' && (
-              <div className="card" style={{ margin: 0 }}>
-                <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="card-title">Scripted Test Utterances ({settingsUtterances.length})</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    {templates.length > 0 && (
-                      <select
-                        className="select-input"
-                        value={selectedTemplateId || ""}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (val) handleLoadTemplate(val);
-                        }}
-                        style={{ fontSize: 12, height: 28, padding: '2px 8px', width: 180, margin: 0 }}
-                      >
-                        <option value="" disabled>Load Template...</option>
-                        {selectedTemplateId === 'custom' && (
-                          <option value="custom" disabled>Custom Usecase</option>
-                        )}
-                        {templates.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.name} ({t.turns_count} turns)
-                          </option>
-                        ))}
-                      </select>
-                    )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {/* Utterance Toolbar outside of the card */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <select
+                      className="select-input"
+                      value={backendConfig?.active_template || ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val) handleLoadTemplate(val);
+                      }}
+                      style={{ fontSize: 13, height: 32, padding: '4px 10px', width: 280, margin: 0 }}
+                    >
+                      <option value="" disabled>Switch Template...</option>
+                      {templates.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name} ({t.turns_count} turns)
+                        </option>
+                      ))}
+                      {backendConfig?.active_template === 'custom' && (
+                        <option value="custom" disabled>Custom / Modified</option>
+                      )}
+                    </select>
+                    <button 
+                      className="btn" 
+                      title="Create new template from current script"
+                      onClick={() => setIsAddTemplateModalOpen(true)}
+                      style={{ padding: '4px 10px', fontSize: 13, height: 32, display: 'flex', alignItems: 'center', gap: 4 }}
+                    >
+                      <Plus size={14} /> Create New Template
+                    </button>
+                  </div>
+                </div>
+
+                <div className="card" style={{ margin: 0 }}>
+                  <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span className="card-title">
+                      {templates.find(t => t.id === backendConfig?.active_template)?.name || 'Current Evaluation Script'} ({settingsUtterances.length} turns)
+                    </span>
                     <button 
                       className="btn btn-primary" 
                       onClick={() => {
                         const nextIndex = settingsUtterances.length;
                         const nextId = `u${String(nextIndex + 1).padStart(2, '0')}`;
+                        setEditingUtteranceIdx(null);
                         setNewUtteranceId(nextId);
                         setNewUtteranceText('');
                         setNewUtteranceExpectType('none');
                         setNewUtterancePhrases('');
                         setNewUtteranceTool('');
                         setNewUtteranceArgs('');
+                        setNewUtteranceBehaviorType('sequential');
+                        setNewUtteranceBargeInDelay(600);
+                        setNewUtteranceExpectInterrupted(false);
                         setIsAddUtteranceModalOpen(true);
                       }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', fontSize: 12, height: 28 }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 12px', fontSize: 13, height: 32 }}
                     >
-                      <Plus size={14} /> Add Utterance
+                      <Plus size={16} /> Add Test Utterance
                     </button>
-                    <button
-                      className="btn btn-primary"
-                      onClick={handleSaveUtterances}
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', fontSize: 12, height: 28 }}
-                    >
-                      Save Utterances
-                    </button>
-                    {utterancesSaveMsg && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{utterancesSaveMsg}</span>}
                   </div>
-                </div>
-                <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {settingsUtterances.length === 0 ? (
                     <div className="onboarding-container" style={{
                       padding: '30px 20px',
@@ -3053,7 +3102,7 @@ function App() {
                             <div style={{
                               position: 'absolute',
                               left: '-32px',
-                              top: '10px',
+                              top: '20px',
                               width: '24px',
                               height: '24px',
                               borderRadius: '50%',
@@ -3071,187 +3120,94 @@ function App() {
                             </div>
 
                             {/* Card Content Row */}
-                            <div className="utterance-edit-row" style={{
-                              padding: 10,
+                            <div className="glass-card" style={{
+                              padding: '12px 16px',
+                              borderRadius: 10,
                               border: '1px solid var(--border)',
-                              borderRadius: 8,
-                              backgroundColor: 'rgba(255, 255, 255, 0.02)',
-                              position: 'relative'
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: 16,
+                              background: 'rgba(255, 255, 255, 0.02)'
                             }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Turn #{idx + 1}</span>
-                                  <input
-                                    type="text"
-                                    className="text-input"
-                                    value={u.id}
-                                    onChange={(e) => updateUtteranceField(idx, 'id', e.target.value)}
-                                    style={{ width: 60, padding: '2px 4px', fontSize: 11, fontWeight: 'bold', fontFamily: 'var(--font-mono)' }}
-                                    placeholder="ID"
-                                  />
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+                                <div style={{ 
+                                  fontSize: 10, 
+                                  fontWeight: 800, 
+                                  color: 'var(--muted)', 
+                                  backgroundColor: 'rgba(255,255,255,0.05)', 
+                                  padding: '2px 6px', 
+                                  borderRadius: 4,
+                                  fontFamily: 'var(--font-mono)'
+                                }}>
+                                  {u.id}
                                 </div>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const updated = settingsUtterances.filter((_, i) => i !== idx);
-                                    setSettingsUtterances(updated);
-                                    const nextRawArgs = {};
-                                    updated.forEach((item, i) => {
-                                      const oldIdx = i >= idx ? i + 1 : i;
-                                      nextRawArgs[i] = rawArgsState[oldIdx] || '';
-                                    });
-                                    setRawArgsState(nextRawArgs);
-                                  }}
-                                  style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    color: 'var(--error)',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    padding: 4
-                                  }}
-                                  title="Delete Utterance"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--fg)', marginBottom: 2 }}>{u.text}</div>
+                                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                    {expectType !== 'none' && (
+                                      <span style={{ fontSize: 10, color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                                        <Target size={10} /> 
+                                        {expectType === 'tool' ? `Tool: ${u.expect.tool}` : `Contains: ${u.expect.response_contains.join(', ')}`}
+                                      </span>
+                                    )}
+                                    {u.behavior?.type === 'barge_in' && (
+                                      <span style={{ fontSize: 10, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 3 }}>
+                                        <Zap size={10} /> Barge-in ({u.behavior.delay_ms}ms)
+                                      </span>
+                                    )}
+                                    {u.expect?.interrupted && (
+                                      <span style={{ fontSize: 10, color: '#ef4444', display: 'flex', alignItems: 'center', gap: 3 }}>
+                                        <XCircle size={10} /> Expect Interrupted
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
                               </div>
 
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                <div className="form-group" style={{ margin: 0 }}>
-                                  <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Prompt text</label>
-                                  <input
-                                    type="text"
-                                    className="text-input"
-                                    value={u.text}
-                                    onChange={(e) => updateUtteranceField(idx, 'text', e.target.value)}
-                                    placeholder="Enter the phrase user should say..."
-                                    style={{ fontSize: 12, padding: '4px 8px' }}
-                                  />
-                                </div>
-
-                                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 2fr', gap: 8, alignItems: 'end' }}>
-                                  <div className="form-group" style={{ margin: 0 }}>
-                                    <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Expectation validation</label>
-                                    <select
-                                      className="select-input"
-                                      value={expectType}
-                                      onChange={(e) => updateUtteranceExpectType(idx, e.target.value)}
-                                      style={{ fontSize: 11, padding: '3px 6px', height: 26 }}
-                                    >
-                                      <option value="none">None (No check)</option>
-                                      <option value="phrases">Response contains (any of)</option>
-                                      <option value="tool">Expected Tool Call</option>
-                                    </select>
-                                  </div>
-
-                                  {expectType === 'phrases' && (
-                                    <div className="form-group" style={{ margin: 0 }}>
-                                      <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>
-                                        Phrases the response must contain (comma-separated)
-                                      </label>
-                                      <input
-                                        type="text"
-                                        className="text-input"
-                                        value={(Array.isArray(u.expect?.response_contains)
-                                          ? u.expect.response_contains
-                                          : (u.expect?.response ? [u.expect.response] : [])
-                                        ).join(', ')}
-                                        onChange={(e) => {
-                                          const phrases = e.target.value
-                                            .split(',')
-                                            .map((p) => p.trim())
-                                            .filter((p) => p.length > 0);
-                                          const updated = [...settingsUtterances];
-                                          const current = updated[idx];
-                                          // Wipe legacy `response` if present; canonical field is response_contains.
-                                          const { response: _legacy, ...restExpect } = current.expect || {};
-                                          updated[idx] = { ...current, expect: { ...restExpect, response_contains: phrases } };
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <button
+                                  className="btn"
+                                  onClick={() => {
+                                    setEditingUtteranceIdx(idx);
+                                    setNewUtteranceId(u.id);
+                                    setNewUtteranceText(u.text);
+                                    setNewUtteranceExpectType(expectType);
+                                    setNewUtterancePhrases(Array.isArray(u.expect?.response_contains) ? u.expect.response_contains.join(', ') : '');
+                                    setNewUtteranceTool(u.expect?.tool || '');
+                                    setNewUtteranceArgs(u.expect?.args ? JSON.stringify(u.expect.args) : '');
+                                    setNewUtteranceBehaviorType(u.behavior?.type || 'sequential');
+                                    setNewUtteranceBargeInDelay(u.behavior?.delay_ms ?? 600);
+                                    setNewUtteranceExpectInterrupted(!!u.expect?.interrupted);
+                                    setIsAddUtteranceModalOpen(true);
+                                  }}
+                                  style={{ padding: '4px 8px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4, height: 28 }}
+                                >
+                                  <Edit2 size={12} /> Edit
+                                </button>
+                                <button
+                                  className="btn"
+                                  onClick={() => {
+                                    if (window.confirm('Are you sure you want to delete this utterance?')) {
+                                      const updated = settingsUtterances.filter((_, i) => i !== idx);
+                                      // Re-save automatically
+                                      fetch(`${backendUrl}/api/utterances/json`, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ utterances: updated })
+                                      })
+                                        .then(res => res.json())
+                                        .then(data => {
                                           setSettingsUtterances(updated);
-                                        }}
-                                        placeholder="verify, identity"
-                                        style={{ fontSize: 12, padding: '3px 6px', height: 26 }}
-                                      />
-                                    </div>
-                                  )}
-
-                                  {expectType === 'tool' && (
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                                      <div className="form-group" style={{ margin: 0 }}>
-                                        <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Expected tool name</label>
-                                        <input
-                                          type="text"
-                                          className="text-input"
-                                          value={u.expect?.tool || ''}
-                                          onChange={(e) => updateUtteranceExpectField(idx, 'tool', e.target.value)}
-                                          placeholder="e.g. get_hours"
-                                          style={{ fontSize: 12, padding: '3px 6px', height: 26 }}
-                                        />
-                                      </div>
-                                      <div className="form-group" style={{ margin: 0 }}>
-                                        <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Expected arguments (JSON)</label>
-                                        <input
-                                          type="text"
-                                          className="text-input"
-                                          value={rawArgsState[idx] || ''}
-                                          onChange={(e) => handleArgsChange(idx, e.target.value)}
-                                          placeholder='e.g. {"guests": 2}'
-                                          style={{ fontSize: 11, fontFamily: 'var(--font-mono)', padding: '3px 6px', height: 26 }}
-                                        />
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 2fr', gap: 8, alignItems: 'end' }}>
-                                  <div className="form-group" style={{ margin: 0 }}>
-                                    <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Turn behavior</label>
-                                    <select
-                                      className="select-input"
-                                      value={u.behavior?.type || 'sequential'}
-                                      onChange={(e) => updateUtteranceBehavior(idx, e.target.value)}
-                                      style={{ fontSize: 11, padding: '3px 6px', height: 26 }}
-                                    >
-                                      <option value="sequential">Sequential (default)</option>
-                                      <option value="barge_in">Barge-in (interrupt previous turn)</option>
-                                    </select>
-                                  </div>
-
-                                  {u.behavior?.type === 'barge_in' && (
-                                    <div className="form-group" style={{ margin: 0 }}>
-                                      <label className="form-label" style={{ fontSize: 11, marginBottom: 2 }}>Delay before interrupting (ms)</label>
-                                      <input
-                                        type="number"
-                                        className="text-input"
-                                        value={u.behavior?.delay_ms ?? 600}
-                                        onChange={(e) => updateUtteranceBehaviorField(idx, 'delay_ms', parseInt(e.target.value, 10) || 0)}
-                                        style={{ fontSize: 12, padding: '3px 6px', height: 26 }}
-                                      />
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div className="form-group" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                  <input
-                                    type="checkbox"
-                                    id={`interrupted-${idx}`}
-                                    checked={!!u.expect?.interrupted}
-                                    onChange={(e) => {
-                                      if (e.target.checked) {
-                                        updateUtteranceExpectField(idx, 'interrupted', true);
-                                      } else {
-                                        const updated = [...settingsUtterances];
-                                        const current = updated[idx];
-                                        const { interrupted, ...restExpect } = current.expect || {};
-                                        updated[idx] = { ...current, expect: restExpect };
-                                        setSettingsUtterances(updated);
-                                      }
-                                    }}
-                                  />
-                                  <label className="form-label" htmlFor={`interrupted-${idx}`} style={{ fontSize: 11, margin: 0 }}>
-                                    Assert this turn was interrupted (barge-in)
-                                  </label>
-                                </div>
+                                          setUtterancesSaveMsg('Deleted and saved.');
+                                          setTimeout(() => setUtterancesSaveMsg(''), 2000);
+                                        });
+                                    }
+                                  }}
+                                  style={{ padding: '4px 8px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4, height: 28, color: 'var(--error)' }}
+                                >
+                                  <Trash2 size={12} /> Delete
+                                </button>
                               </div>
                             </div>
                           </div>
@@ -3261,6 +3217,7 @@ function App() {
                   )}
                 </div>
               </div>
+            </div>
             )}
 
             {settingsSubTab === 'danger' && (
@@ -3300,27 +3257,36 @@ function App() {
                 <button className="modal-close-btn" onClick={() => setIsNewRunModalOpen(false)}>&times;</button>
               </div>
               <div className="modal-body" style={{ color: 'var(--fg)' }}>
-                {/* Active Evaluation Scenario info note */}
-                <div style={{ 
-                  marginBottom: 16, 
-                  padding: '10px 14px', 
-                  borderRadius: 10, 
-                  background: 'rgba(255, 255, 255, 0.02)', 
-                  border: '1px solid var(--border)', 
-                  fontSize: 13, 
-                  textAlign: 'left' 
-                }}>
-                  <div style={{ color: 'var(--muted)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    Active Evaluation Scenario
-                  </div>
-                  <div style={{ fontWeight: 600, color: 'var(--fg)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span>📋</span> {activeTemplateName}
-                    <span style={{ fontSize: 11, fontWeight: 'normal', color: 'var(--muted)' }}>
-                      ({maxTurns} scripted turns available)
+                {/* Scenario Selection */}
+                <div style={{ marginBottom: 20 }}>
+                  <label className="form-label" style={{ marginBottom: 8, display: 'block' }}>Benchmarking Scenario</label>
+                  <select
+                    className="select-input"
+                    value={activeTemplateId}
+                    onChange={(e) => executeLoadTemplate(e.target.value)}
+                    style={{ width: '100%', marginBottom: 6, height: 36 }}
+                  >
+                    {templates.map(t => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                    {activeTemplateId === 'custom' && (
+                      <option value="custom">Custom Usecase</option>
+                    )}
+                  </select>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'flex-start',
+                    fontSize: 11,
+                    color: 'var(--muted)',
+                    padding: '0 4px'
+                  }}>
+                    <span style={{ flex: 1, paddingRight: 12 }}>
+                      {activeTemplate?.description || "Manually edited test script and system prompt."}
                     </span>
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
-                    To edit turns or switch scenarios, please navigate to the <strong>Settings</strong> tab.
+                    <span style={{ fontWeight: 600, whiteSpace: 'nowrap', color: 'var(--color-primary)' }}>
+                      {maxTurns} scripted turns
+                    </span>
                   </div>
                 </div>
 
@@ -3461,7 +3427,9 @@ function App() {
         <div className="modal-overlay" onClick={() => setIsAddUtteranceModalOpen(false)}>
           <div className="modal-content-card glass-card" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">Add New Test Utterance</span>
+              <span className="modal-title">
+                {editingUtteranceIdx !== null ? 'Edit Test Utterance' : 'Add New Test Utterance'}
+              </span>
               <button className="modal-close-btn" onClick={() => setIsAddUtteranceModalOpen(false)}>&times;</button>
             </div>
             <div className="modal-body" style={{ color: 'var(--fg)', display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -3491,17 +3459,31 @@ function App() {
                 </div>
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Expectation Validation</label>
-                <select
-                  className="select-input"
-                  value={newUtteranceExpectType}
-                  onChange={(e) => setNewUtteranceExpectType(e.target.value)}
-                >
-                  <option value="none">None (No check)</option>
-                  <option value="phrases">Response contains (any of)</option>
-                  <option value="tool">Expected Tool Call</option>
-                </select>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div className="form-group">
+                  <label className="form-label">Expectation Validation</label>
+                  <select
+                    className="select-input"
+                    value={newUtteranceExpectType}
+                    onChange={(e) => setNewUtteranceExpectType(e.target.value)}
+                  >
+                    <option value="none">None (No check)</option>
+                    <option value="phrases">Response contains (any of)</option>
+                    <option value="tool">Expected Tool Call</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Turn Behavior</label>
+                  <select
+                    className="select-input"
+                    value={newUtteranceBehaviorType}
+                    onChange={(e) => setNewUtteranceBehaviorType(e.target.value)}
+                  >
+                    <option value="sequential">Sequential (default)</option>
+                    <option value="barge_in">Barge-in (interrupt)</option>
+                  </select>
+                </div>
               </div>
 
               {newUtteranceExpectType === 'phrases' && (
@@ -3545,6 +3527,31 @@ function App() {
                 </div>
               )}
 
+              <div style={{ display: 'flex', gap: 16 }}>
+                {newUtteranceBehaviorType === 'barge_in' && (
+                  <div className="form-group" style={{ flex: 1 }}>
+                    <label className="form-label">Barge-in Delay (ms)</label>
+                    <input
+                      type="number"
+                      className="text-input"
+                      value={newUtteranceBargeInDelay}
+                      onChange={(e) => setNewUtteranceBargeInDelay(parseInt(e.target.value, 10) || 0)}
+                    />
+                  </div>
+                )}
+                <div className="form-group" style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, marginTop: newUtteranceBehaviorType === 'barge_in' ? 24 : 0 }}>
+                  <input
+                    type="checkbox"
+                    id="new-expect-interrupted"
+                    checked={newUtteranceExpectInterrupted}
+                    onChange={(e) => setNewUtteranceExpectInterrupted(e.target.checked)}
+                  />
+                  <label className="form-label" htmlFor="new-expect-interrupted" style={{ margin: 0, fontSize: 13 }}>
+                    Expect Interrupted
+                  </label>
+                </div>
+              </div>
+
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 12 }}>
                 <button className="btn" type="button" onClick={() => setIsAddUtteranceModalOpen(false)}>
                   Cancel
@@ -3572,7 +3579,7 @@ function App() {
                         .split(',')
                         .map((p) => p.trim())
                         .filter((p) => p.length > 0);
-                      newUtt.expect = { response_contains: phrases };
+                      newUtt.expect = { ...newUtt.expect, response_contains: phrases };
                     } else if (newUtteranceExpectType === 'tool') {
                       let parsedArgs = {};
                       if (newUtteranceArgs.trim()) {
@@ -3584,24 +3591,114 @@ function App() {
                         }
                       }
                       newUtt.expect = {
+                        ...newUtt.expect,
                         tool: newUtteranceTool.trim(),
                         args: parsedArgs,
                       };
                     }
 
-                    const nextIndex = settingsUtterances.length;
-                    setSettingsUtterances([...settingsUtterances, newUtt]);
-                    setRawArgsState((prev) => ({ ...prev, [nextIndex]: newUtteranceArgs }));
-                    setIsAddUtteranceModalOpen(false);
+                    if (newUtteranceExpectInterrupted) {
+                      newUtt.expect = { ...newUtt.expect, interrupted: true };
+                    }
+
+                    if (newUtteranceBehaviorType === 'barge_in') {
+                      newUtt.behavior = { type: 'barge_in', delay_ms: newUtteranceBargeInDelay };
+                    }
+
+                    let updated;
+                    if (editingUtteranceIdx !== null) {
+                      updated = [...settingsUtterances];
+                      updated[editingUtteranceIdx] = newUtt;
+                    } else {
+                      updated = [...settingsUtterances, newUtt];
+                    }
+
+                    // Auto-save to backend
+                    fetch(`${backendUrl}/api/utterances/json`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ utterances: updated })
+                    })
+                      .then(res => res.json())
+                      .then(data => {
+                        setSettingsUtterances(updated);
+                        setIsAddUtteranceModalOpen(false);
+                        setUtterancesSaveMsg(editingUtteranceIdx !== null ? 'Utterance updated.' : 'Utterance added.');
+                        setTimeout(() => setUtterancesSaveMsg(''), 3000);
+                        
+                        // If template was active, it's now custom
+                        fetch(`${backendUrl}/api/status`)
+                          .then((res) => res.json())
+                          .then((cfg) => setBackendConfig(cfg));
+                      })
+                      .catch(err => alert(`Failed to save: ${err.message}`));
                   }}
                 >
-                  Add Utterance
+                  {editingUtteranceIdx !== null ? 'Save Changes' : 'Add Utterance'}
                 </button>
               </div>
             </div>
           </div>
         </div>
       )}
+      {isAddTemplateModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsAddTemplateModalOpen(false)}>
+          <div className="modal-content-card glass-card" style={{ maxWidth: 450 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">Create New Template</span>
+              <button className="modal-close-btn" onClick={() => setIsAddTemplateModalOpen(false)}>&times;</button>
+            </div>
+            <div className="modal-body" style={{ color: 'var(--fg)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <p style={{ fontSize: 13, opacity: 0.8, margin: 0 }}>
+                This will save your current {settingsUtterances.length} utterances as a new benchmark template.
+              </p>
+              
+              <div className="form-group">
+                <label className="form-label">Template Name</label>
+                <input
+                  type="text"
+                  className="text-input"
+                  value={newTemplateName}
+                  onChange={(e) => setNewTemplateName(e.target.value)}
+                  placeholder="e.g. Saffron Leaf: Booking Flow"
+                  autoFocus
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Description (Optional)</label>
+                <textarea
+                  className="text-input"
+                  value={newTemplateDesc}
+                  onChange={(e) => setNewTemplateDesc(e.target.value)}
+                  placeholder="What does this test suite verify?"
+                  style={{ minHeight: 80, resize: 'vertical', fontSize: 13 }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 8 }}>
+                <button className="btn" type="button" onClick={() => setIsAddTemplateModalOpen(false)}>
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  onClick={handleCreateTemplate}
+                >
+                  Create Template
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {utterancesSaveMsg && (
+        <div className="toast-success">
+          {utterancesSaveMsg}
+        </div>
+      )}
+
       {confirmModalConfig && (
         <div className="modal-overlay" onClick={() => setConfirmModalConfig(null)}>
           <div className="modal-content-card glass-card" style={{ maxWidth: 450 }} onClick={(e) => e.stopPropagation()}>
