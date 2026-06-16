@@ -215,15 +215,23 @@ class BaseProviderAdapter:
 
     def register_tools(self, service: Any) -> None:
         """Wire every agent tool into the Pipecat service using a template-aware callback."""
+        collector = self.metrics_collector
+
         async def tool_callback(params: FunctionCallParams) -> None:
             name = params.function_name
             args = params.arguments
             logger.info(f"[Tool] {name}({args}) using template {self.agent.template_id}")
             try:
                 result_str = execute_tool(name, args, template_id=self.agent.template_id)
+                # Record the tool's result on the turn so the post-run LLM
+                # evaluator can check faithfulness/hallucinations against ground truth.
+                if collector.current_turn and collector.current_turn.tool_call_details:
+                    collector.current_turn.tool_call_details["result"] = result_str
                 await params.result_callback({"result": result_str})
             except Exception as e:
                 logger.error(f"[Tool] Error in {name}: {e}")
+                if collector.current_turn and collector.current_turn.tool_call_details:
+                    collector.current_turn.tool_call_details["error"] = str(e)
                 await params.result_callback({"error": str(e)})
 
         for schema in self.agent.tool_schemas:
